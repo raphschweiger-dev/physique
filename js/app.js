@@ -5,6 +5,7 @@ import {
 } from './data.js';
 import * as E from './engine.js';
 import * as store from './store.js';
+import * as sync from './sync.js';
 import { bodyMap, heatLevel } from './body.js';
 import { lineChart, bindLineCharts, weekBars } from './charts.js';
 
@@ -24,7 +25,10 @@ const $toast = document.getElementById('toast');
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const num = v => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : NaN; };
-const save = () => { if (!store.save(S)) toast('Storage full or blocked. Export a backup in Settings.'); };
+const save = () => {
+  if (!store.save(S)) toast('Storage full or blocked. Export a backup in Settings.');
+  sync.schedule(() => S, updateSyncStatus);
+};
 const commit = () => { save(); render(); };
 const tierOf = m => S.priorities[m];
 const muscleOrder = (a, b) => TIERS[tierOf(a)].rank - TIERS[tierOf(b)].rank || MUSCLES.findIndex(x => x.id === a) - MUSCLES.findIndex(x => x.id === b);
@@ -171,6 +175,7 @@ function viewOnboarding() {
         <li>${icon('check', 18)} Tells you exactly what to beat next session</li>
       </ul>
       <button class="btn primary big" data-act="ob-next">Set up my plan</button>
+      ${sync.configured() ? '<button class="btn text" data-act="sync-join">I already use Physique on another device</button>' : ''}
     </div>`;
   }
   if (st === 1) {
@@ -606,6 +611,7 @@ function viewSettings() {
     <section class="card flush">
       ${toggle('settings.sound', 'Beep when rest is over', 'Follows the iPhone silent switch')}
     </section>
+    ${syncCard()}
     <section class="card">
       <h3>Your data</h3>
       <p class="hint">Everything is stored on this device only. Export a backup now and then, e.g. to iCloud Drive via the share sheet. Last backup: <b>${esc(lastB)}</b>.</p>
@@ -620,6 +626,70 @@ function viewSettings() {
     </section>
     ${!isStandalone() ? `<section class="card note">${icon('share', 20)}<div><b>Install on iPhone</b><p>Open this page in Safari, tap Share, then <b>Add to Home Screen</b>. Set it up after installing: the installed app keeps its own data.</p></div></section>` : ''}
     <p class="hint center">Physique v1</p>`;
+}
+
+// ---------- sync ----------
+
+function syncStatusText() {
+  const { lastSync, error } = sync.status();
+  if (error) return error;
+  if (!lastSync) return 'Not synced yet.';
+  const mins = Math.round((Date.now() - lastSync) / 60000);
+  if (mins < 1) return 'Synced just now.';
+  if (mins < 60) return `Synced ${mins} min ago.`;
+  return `Last synced ${new Date(lastSync).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.`;
+}
+
+function updateSyncStatus() {
+  const el = document.getElementById('sync-status');
+  if (el) el.textContent = syncStatusText();
+}
+
+function syncCard() {
+  if (!sync.configured()) return '';
+  if (!sync.isOn()) {
+    return `<section class="card">
+      <h3>Sync across devices</h3>
+      <p class="hint">Use the same log on your phone, tablet and computer. Turning sync on stores a copy of your log online, under a private code only your devices know.</p>
+      <div class="row wrap"><button class="btn small primary" data-act="sync-on">Turn on sync</button><button class="btn small ghost" data-act="sync-join">I have a code</button></div>
+    </section>`;
+  }
+  return `<section class="card">
+    <h3>Sync across devices</h3>
+    <div class="sync-code"><span>Your sync code</span><b>${esc(sync.code())}</b></div>
+    <p class="hint" id="sync-status">${esc(syncStatusText())}</p>
+    <div class="row wrap"><button class="btn small ghost" data-act="sync-copy">Copy code</button><button class="btn small ghost" data-act="sync-now">Sync now</button><button class="btn small ghost" data-act="sync-off">Turn off</button></div>
+    <p class="hint">On another device: Settings → Sync across devices → I have a code. Anyone with this code can see and change your log, so keep it private.</p>
+    <button class="btn text danger" data-act="sync-delete">Delete the online copy</button>
+  </section>`;
+}
+
+function syncJoinSheet() {
+  const hasData = S.onboarded && S.sessions.length > 0;
+  return `<div class="sheet-head"><h2>Enter your sync code</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    <p class="hint">Find it on your other device under Settings → Sync across devices.</p>
+    <input class="input code-input" id="sync-code-input" value="${esc(sheet.value || '')}" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Sync code">
+    ${sheet.error ? `<p class="form-error" role="alert">${esc(sheet.error)}</p>` : ''}
+    ${hasData ? '<p class="hint">Workouts already on this device get added to the synced log. Settings and priorities come from the synced log.</p>' : ''}
+    <button class="btn primary big" data-act="sync-join-go"${sheet.busy ? ' disabled' : ''}>${sheet.busy ? 'Connecting…' : 'Connect'}</button>`;
+}
+
+function syncCodeSheet() {
+  return `<div class="sheet-head"><div><p class="eyebrow">Sync is on</p><h2>Your sync code</h2></div><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    <div class="sync-code big"><b>${esc(sync.code())}</b></div>
+    <p class="hint">Enter it on your other devices: Settings → Sync across devices → I have a code. After that they stay in sync on their own. You can find the code again in Settings.</p>
+    <p class="hint">Anyone with this code can see and change your log, so keep it private.</p>
+    <button class="btn ghost big" data-act="sync-copy">Copy code</button>
+    <button class="btn primary big" data-act="close-sheet">Done</button>`;
+}
+
+let lastSyncPull = 0;
+// Pull other devices' changes and push ours; re-render only if something arrived.
+async function runSync() {
+  if (!sync.isOn()) return;
+  lastSyncPull = Date.now();
+  const changed = await sync.syncNow(S);
+  if (changed) { store.save(S); render(); } else updateSyncStatus();
 }
 
 // ---------- sheets ----------
@@ -710,7 +780,7 @@ function renderSheet() {
   const body = {
     loc: () => locationSheet(sheet.day, sheet.switching), pickDay: pickDaySheet, swap: () => swapSheet(sheet.i), checkin: checkinSheet,
     summary: summarySheet, confirm: confirmSheet, muscle: () => muscleSheet(sheet.m), exercise: () => exerciseSheet(sheet.ex),
-    measure: measureSheet, priorities: prioritiesSheet,
+    measure: measureSheet, priorities: prioritiesSheet, syncJoin: syncJoinSheet, syncCode: syncCodeSheet,
   }[sheet.type]();
   $sheet.innerHTML = `<div class="sheet-backdrop" data-act="${sheet.type === 'checkin' ? '' : 'close-sheet'}"></div>
     <div class="sheet" role="dialog" aria-modal="true" data-type="${sheet.type}"><div class="grabber"></div>${body}</div>`;
@@ -801,7 +871,12 @@ async function keepAwake(on) {
     } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
   } catch { wakeLock = null; }
 }
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.active) keepAwake(true); });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (S.active) keepAwake(true);
+  if (Date.now() - lastSyncPull > 15000) runSync();   // pick up changes made on another device
+});
+window.addEventListener('online', () => runSync());
 
 // ---------- workout actions ----------
 
@@ -1056,6 +1131,49 @@ const A = {
     });
   },
   'confirm-yes'() { const fn = sheet.fn; sheet = null; fn(); render(); },
+  async 'sync-on'(el) {
+    el.disabled = true;
+    try {
+      await sync.enable(S);
+      sheet = { type: 'syncCode' };
+    } catch (e) {
+      if (e.kind === 'offline') { sheet = { type: 'syncCode' }; toast('Sync is on. It uploads when you’re online.'); } else { sync.disable(); toast(e.message); }
+    }
+    render();
+  },
+  'sync-join'() {
+    sheet = { type: 'syncJoin' };
+    renderSheet();
+    setTimeout(() => document.getElementById('sync-code-input')?.focus(), 60);
+  },
+  async 'sync-join-go'() {
+    sheet = { ...sheet, value: document.getElementById('sync-code-input')?.value || '', busy: true, error: null };
+    renderSheet();
+    try {
+      await sync.join(sheet.value, S);
+      store.save(S);
+      sheet = null;
+      ui.tab = 'today';
+      render();
+      toast('Connected. Your log is synced.');
+    } catch (e) {
+      sheet = { ...sheet, busy: false, error: e.message };
+      renderSheet();
+    }
+  },
+  async 'sync-copy'() {
+    try { await navigator.clipboard.writeText(sync.code()); toast('Code copied'); } catch { toast(sync.code()); }
+  },
+  async 'sync-now'() { await runSync(); toast(sync.status().error || 'Synced'); },
+  'sync-off'() {
+    confirmThen('Turn off sync on this device?', 'This device keeps its data but stops syncing. The online copy stays, so you can reconnect with the code anytime.', 'Turn off', () => { sync.disable(); });
+  },
+  'sync-delete'() {
+    confirmThen('Delete the online copy?', 'All synced workouts and settings are deleted from the cloud and sync stops. Every device keeps the data it already has.', 'Delete online copy', async () => {
+      try { await sync.deleteRemote(); toast('Online copy deleted'); } catch (e) { toast(e.message); }
+      render();
+    }, true);
+  },
   'close-sheet'() {
     if (!sheet) return;
     if (sheet.type === 'muscle') ui.sel = null;
@@ -1084,7 +1202,9 @@ const A = {
   },
   import() { document.getElementById('import-file')?.click(); },
   reset() {
-    confirmThen('Erase all data?', 'Every workout, measurement and setting on this device will be deleted. Export a backup first if you might want it back.', 'Erase everything', () => {
+    const syncNote = sync.isOn() ? ' Sync turns off on this device; the online copy stays.' : '';
+    confirmThen('Erase all data?', `Every workout, measurement and setting on this device will be deleted. Export a backup first if you might want it back.${syncNote}`, 'Erase everything', () => {
+      sync.disable();
       localStorage.removeItem('physique.v1');
       S = store.defaultState();
       ui.ob = null; ui.obStep = 0; ui.tab = 'today';
@@ -1166,3 +1286,4 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || new URLSe
 
 if (S.active) keepAwake(true);
 render();
+runSync();

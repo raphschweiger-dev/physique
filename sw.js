@@ -1,6 +1,6 @@
 // Offline support: precache the app shell, serve from cache first, refresh the cache in the background.
 // Bump VERSION on every deploy so phones pick up the new files.
-const VERSION = 'physique-v2';
+const VERSION = 'physique-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -12,6 +12,8 @@ const ASSETS = [
   'js/store.js',
   'js/body.js',
   'js/charts.js',
+  'js/sync.js',
+  'js/sync-config.js',
   'icons/apple-touch-icon.png',
   'icons/icon-192.png',
   'icons/icon-512.png',

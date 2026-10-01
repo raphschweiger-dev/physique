@@ -31,8 +31,14 @@ After the first visit it works offline, so a bad gym connection doesn't matter.
 
 ## Your data
 
-Everything stays on your phone. There is no account and nothing is uploaded anywhere.
+Everything stays on your phone unless you turn on sync. There is no account.
 Use **Settings → Export backup** now and then to keep a copy (e.g. in iCloud Drive) or to move to a new phone.
+
+**Sync across devices (optional):** Settings → *Sync across devices* → **Turn on sync** gives you a private
+20-character code. On your other phone, tablet or computer choose **I have a code** (or, on a fresh install,
+*I already use Physique on another device*) and enter it. From then on your devices stay in sync on their own,
+and the app still works offline. Your log is then stored online under that code, so anyone who knows the code
+can see and change it. Keep it private. *Delete the online copy* removes it again.
 
 ## The science behind it
 
@@ -52,3 +58,7 @@ No plan is perfect for everyone, so these are starting points that your logs and
 
 Plain HTML, CSS and JavaScript with no build step. Serve the folder with any static web server.
 When you change files, bump `VERSION` in `sw.js` so installed copies pick up the update.
+
+Sync uses Firestore's REST API. To run your own: create a free Firebase project with a Firestore
+database, publish `firestore.rules`, and put the project's `projectId` and web `apiKey` into
+`js/sync-config.js`. With those left empty, the sync option stays hidden.

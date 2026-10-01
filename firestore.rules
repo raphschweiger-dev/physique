@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Physique sync. A sync code is a long random secret: whoever knows it can read and write
+    // that log. Listing all logs is never allowed, so codes can't be discovered.
+    match /sync/{code} {
+      allow get, create, update, delete: if code.size() == 20;
+      match /sessions/{session} {
+        allow read, write: if code.size() == 20;
+      }
+    }
+  }
+}
