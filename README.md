@@ -1,42 +1,54 @@
 # Physique
 
-Aesthetics-first hypertrophy planner and workout log. A static web app you install on your iPhone
-from Safari ("Add to Home Screen"): its own icon, full screen, works offline, data stays on the phone.
+A muscle-building planner and workout log that runs on your phone like an app. Free, no account, no ads.
 
-## Put it on your iPhone
+## Install
 
-The app has to be online at an `https://` address once so Safari can install it. GitHub Pages is free:
+**iPhone:** open **https://raphschweiger-dev.github.io/physique/** in **Safari** → tap Share → **Add to Home Screen**.
+Then open it from the home screen and do the setup there. The installed app keeps its own data, separate from Safari.
 
-1. Create a free account at github.com.
-2. New repository → name it `physique` → **Public** → Create.
-3. On the new repo page click **uploading an existing file**, drag in everything *inside* this folder
-   (`index.html`, `manifest.webmanifest`, `sw.js`, and the `css`, `js`, `icons` folders) → **Commit changes**.
-4. Repo **Settings → Pages** → Source: **Deploy from a branch** → `main` / `(root)` → **Save**.
-5. After about a minute the app is at `https://<your-username>.github.io/physique/`.
-6. Open that link in **Safari** on the iPhone → Share → **Add to Home Screen**.
-7. Open it from the home screen and do the setup there. The installed app keeps its own data,
-   separate from Safari.
+**Android:** open the link in Chrome → menu (⋮) → **Install app** or **Add to Home screen**.
 
-Only the code is public. Your workouts never leave the phone.
+After the first visit it works offline, so a bad gym connection doesn't matter.
+
+## What it does
+
+- **Builds your week.** Pick 2–6 training days. You get a split with sets per muscle, effort targets and rest
+  times that fit your session length. You can change the number of days anytime and keep your history.
+- **Gym, Home or Anywhere.** Before each workout, pick where you are. Home uses the equipment you own.
+  Anywhere needs nothing but bodyweight, a door and maybe a chair. Every location trains the same
+  muscles with the same weekly sets; only the exercises change.
+- **Muscle priorities.** Start from Upper-body focus, Balanced or Lower-body focus, then set each muscle to
+  Priority, Grow, Maintain or Indirect.
+- **Progressive overload.** Every exercise shows what you did last time and what to beat today. Hit the top of
+  the rep range on every set and it adds weight. When you run out of heavier weights, it makes the
+  exercise harder instead: slower reps, pauses, 1½ reps, harder variations.
+- **Tracks every muscle.** A front/back body heatmap and weekly volume per muscle. Helper muscles count as half
+  a set.
+- **Adjusts to you.** A 10-second check-in after each workout fine-tunes next sets per muscle. Volume and
+  effort build over a 5-week block, then a lighter week clears fatigue, or earlier if performance drops.
+- **Progress.** Strength charts per exercise, personal records, bodyweight and body measurements.
 
 ## Your data
 
-Everything is stored on the device. Settings → **Export backup** saves a JSON file (e.g. to iCloud
-Drive); **Import backup** restores it, also on a new phone.
+Everything stays on your phone. There is no account and nothing is uploaded anywhere.
+Use **Settings → Export backup** now and then to keep a copy (e.g. in iCloud Drive) or to move to a new phone.
 
-## Updating the app
+## The science behind it
 
-Change the files, bump `VERSION` in `sw.js` (e.g. `physique-v2`), upload again. The phone picks up
-the new version on the next launch after that.
+| Topic | Default | Research |
+|---|---|---|
+| Volume | 10–20+ hard sets per muscle per week, helper muscles count ½ | Schoenfeld 2017, Pelland 2024 |
+| Frequency | each muscle at least twice a week | Schoenfeld 2016 |
+| Effort | stop 0–3 reps before failure | Robinson 2024 |
+| Reps | 6–12 on big lifts, 10–20 on isolation, up to 30 with light weights | Schoenfeld 2017, Lasevicius 2018 |
+| Exercise choice | load the muscle in its stretched position | Maeo 2021/2023, Pedrosa 2022 |
+| Rest | 2–3 min big lifts, ~1.5 min isolation | Schoenfeld 2016, Singer 2024 |
+| Progression | add reps, then weight | Plotkin 2022 |
 
-## Local preview
+No plan is perfect for everyone, so these are starting points that your logs and check-ins adjust.
 
-From the project folder: `python tools/devserver.py`, then open http://localhost:8765/physique-app/.
-Add `?sw=1` to test the offline service worker on localhost.
+## For developers
 
-## How the plan works
-
-- `js/data.js`: muscles, priority tiers, movement slots, exercise library (gym + home), splits.
-- `js/engine.js`: weekly targets (fractional sets), plan generation and time-cap trimming,
-  exercise choice, double progression with the home technique ladder, volume, fatigue and stalls.
-- `js/app.js`: the screens. `js/body.js`: the muscle map. `js/charts.js`: charts.
+Plain HTML, CSS and JavaScript with no build step. Serve the folder with any static web server.
+When you change files, bump `VERSION` in `sw.js` so installed copies pick up the update.

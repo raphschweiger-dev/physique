@@ -1,7 +1,7 @@
 {
   "name": "Physique",
   "short_name": "Physique",
-  "description": "Aesthetics-focused hypertrophy planner and workout log.",
+  "description": "Science-based muscle-building planner and workout log.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

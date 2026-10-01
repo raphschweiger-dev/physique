@@ -10,8 +10,9 @@ export function defaultState() {
     profile: { experience: 'intermediate', sessionMinutes: 75, bodyweight: null },
     settings: {
       daysPerWeek: 4,
-      location: 'ask',                       // ask | gym | home
+      location: 'ask',                       // ask | gym | home | anywhere
       home: { bar: true, chair: true, bench: false, db: [], kb: [] },
+      anywhere: { chair: true, backpack: false, backpackMax: 10 },   // a door and a towel are assumed
       gymSteps: { barbell: 2.5, dumbbell: 2, cable: 2.5, machine: 2.5, smith: 2.5, bodyweight: 2.5 },
       sound: true,
     },
@@ -37,6 +38,7 @@ function migrate(s) {
     settings: {
       ...d.settings, ...s.settings,
       home: { ...d.settings.home, ...s.settings?.home },
+      anywhere: { ...d.settings.anywhere, ...s.settings?.anywhere },
       gymSteps: { ...d.settings.gymSteps, ...s.settings?.gymSteps },
     },
     priorities: { ...d.priorities, ...s.priorities },

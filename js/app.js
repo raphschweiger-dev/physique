@@ -1,7 +1,7 @@
 // UI: renders each tab from state and handles every interaction through data-act delegation.
 import {
-  MUSCLES, MUSCLE, TIERS, TIER_ORDER, BASELINE_PRIORITIES, EXPERIENCE, SLOTS, EXERCISE, SPLITS,
-  TECHNIQUE_LEVELS, SCIENCE,
+  MUSCLES, MUSCLE, TIERS, TIER_ORDER, BASELINE_PRIORITIES, PRESETS, EXPERIENCE, SLOTS, EXERCISE, SPLITS,
+  TECHNIQUE_LEVELS, SCIENCE, LOCATIONS,
 } from './data.js';
 import * as E from './engine.js';
 import * as store from './store.js';
@@ -30,6 +30,7 @@ const tierOf = m => S.priorities[m];
 const muscleOrder = (a, b) => TIERS[tierOf(a)].rank - TIERS[tierOf(b)].rank || MUSCLES.findIndex(x => x.id === a) - MUSCLES.findIndex(x => x.id === b);
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const fmtRest = s => (s % 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s / 60}`) + ' min';
+const locLabel = ex => ex.locs.map(l => LOCATIONS[l]).join(' / ');
 const isStandalone = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -47,6 +48,7 @@ const ICONS = {
   chevron: '<path d="M9 5l7 7-7 7"/>',
   gym: '<path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/>',
   home: '<path d="M3.5 11L12 4l8.5 7M6 9.5V20h12V9.5"/>',
+  anywhere: '<path d="M12 21s-6.5-5.7-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.3 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   share: '<path d="M12 15V3.5M7.5 8L12 3.5 16.5 8M5 12v8h14v-8"/>',
@@ -143,6 +145,7 @@ function startOnboarding() {
   ui.ob = {
     daysPerWeek: 4, experience: 'intermediate', bodyweight: '', sessionMinutes: 75,
     home: { bar: true, chair: true, bench: false, db: [], kb: [] },
+    anywhere: { chair: true, backpack: false, backpackMax: 10 },
     priorities: { ...BASELINE_PRIORITIES },
   };
   ui.obStep = 0;
@@ -161,10 +164,10 @@ function viewOnboarding() {
     return `<div class="ob ob-welcome">
       <div class="ob-logo">${logoSVG()}</div>
       <h1>Physique</h1>
-      <p class="lead">A hypertrophy plan built for aesthetics. It tracks every muscle you hit and adjusts to what you log.</p>
+      <p class="lead">A science-based plan for building muscle. It tracks every muscle you train and adjusts to what you log.</p>
       <ul class="ob-points">
         <li>${icon('check', 18)} Volume, effort and rest based on current research</li>
-        <li>${icon('check', 18)} Same muscle volume at the gym or at home</li>
+        <li>${icon('check', 18)} Same muscle volume at the gym, at home or anywhere</li>
         <li>${icon('check', 18)} Tells you exactly what to beat next session</li>
       </ul>
       <button class="btn primary big" data-act="ob-next">Set up my plan</button>
@@ -198,30 +201,46 @@ function viewOnboarding() {
   }
   if (st === 4) {
     return `<div class="ob">${dots}
-      <h1>Your home gym</h1>
-      <p class="lead">Pick every weight you own. Home plans only suggest weights you actually have.</p>
+      <h1>Your equipment</h1>
+      <p class="lead">Before each workout you pick Gym, Home or Anywhere. Plans only suggest what you actually have there.</p>
+      <h3 class="sub">Home</h3>
       <div class="card flush">
         ${toggle('ob.home.bar', 'Pull-up bar')}
         ${toggle('ob.home.chair', 'Sturdy chair or couch', 'For split squats, rows, hip thrusts')}
         ${toggle('ob.home.bench', 'Weight bench')}
       </div>
-      <h3 class="sub">Kettlebells (kg)</h3>${weightPicker('ob.home.kb', KB_WEIGHTS)}
-      <h3 class="sub">Dumbbells (kg)</h3>${weightPicker('ob.home.db', DB_WEIGHTS)}
+      <h3 class="sub">Kettlebells at home (kg)</h3>${weightPicker('ob.home.kb', KB_WEIGHTS)}
+      <h3 class="sub">Dumbbells at home (kg)</h3>${weightPicker('ob.home.db', DB_WEIGHTS)}
+      <h3 class="sub">Anywhere (travel, hotel, no equipment)</h3>
+      <div class="card flush">${anywhereToggles('ob.anywhere')}</div>
+      <p class="hint">A door and a towel are assumed: doorknob rows and curls stand in for the pull-up bar.</p>
       ${nav()}</div>`;
   }
   return `<div class="ob">${dots}
     <h1>Muscle priorities</h1>
-    <p class="lead">Baseline: <b>Aesthetic V-taper</b>. Shoulders, lats, upper chest and arms get the most volume. Legs stay on a maintenance dose.</p>
+    <p class="lead">Pick a starting point, then adjust any muscle. Priority gets the most weekly sets, Maintain keeps what you have in little time, Indirect only gets what compound lifts give it.</p>
     ${priorityEditor('ob.priorities')}
     <div class="ob-nav"><button class="btn ghost" data-act="ob-back">Back</button><button class="btn primary" data-act="ob-finish">Build my plan</button></div>
   </div>`;
+}
+
+function anywhereToggles(path) {
+  const [root, p] = rootFor(path);
+  const a = getPath(root, p);
+  return `${toggle(`${path}.chair`, 'Chair, bed or bench', 'To put your feet or hands on')}
+    ${toggle(`${path}.backpack`, 'Backpack you can load', 'Books or water bottles. Unlocks loaded raises, curls and extensions')}
+    ${a.backpack ? `<label class="field inset"><span>Most you can load it with (kg)</span>
+      <input class="input" inputmode="decimal" data-bind="${path}.backpackMax" data-numeric="1" value="${esc(a.backpackMax)}"></label>` : ''}`;
 }
 
 function priorityEditor(path) {
   const [root, p] = rootFor(path);
   const pr = getPath(root, p);
   const groups = [...new Set(MUSCLES.map(m => m.group))];
-  return `<div class="prio">${groups.map(g => `<div class="prio-group"><h3 class="sub">${g}</h3>
+  const active = Object.keys(PRESETS).find(k => MUSCLES.every(m => PRESETS[k].priorities[m.id] === pr[m.id]));
+  return `<h3 class="sub">Start from</h3><div class="presets">${Object.entries(PRESETS).map(([k, v]) =>
+    `<button class="preset${active === k ? ' on' : ''}" aria-pressed="${active === k}" data-act="preset" data-path="${path}" data-v="${k}">${v.label}</button>`).join('')}</div>
+    <div class="prio">${groups.map(g => `<div class="prio-group"><h3 class="sub">${g}</h3>
     ${MUSCLES.filter(m => m.group === g).map(m => `<div class="prio-row"><span class="prio-name">${esc(m.name)}</span>
       <div class="seg small">${TIER_ORDER.map(t => `<button class="${pr[m.id] === t ? 'on' : ''}" aria-pressed="${pr[m.id] === t}" data-act="set" data-path="${path}.${m.id}" data-v="${t}">${t === 'indirect' ? 'Indirect' : TIERS[t].label}</button>`).join('')}</div></div>`).join('')}
   </div>`).join('')}</div>`;
@@ -301,7 +320,7 @@ function viewWorkout() {
   const a = S.active;
   const st = workoutStats(a);
   return `<header class="top wk"><div><p class="eyebrow">${a.deload ? 'Deload week' : `Meso ${a.meso} · Week ${a.week}`}</p><h1>${esc(a.dayName)}</h1></div>
-      <button class="loc-pill" data-act="switch-loc">${icon(a.loc, 18)}${a.loc === 'gym' ? 'Gym' : 'Home'}</button></header>
+      <button class="loc-pill" data-act="switch-loc" aria-label="Training at ${LOCATIONS[a.loc]}. Change location">${icon(a.loc, 18)}${LOCATIONS[a.loc]}</button></header>
     <div class="wk-meta"><span>${icon('timer', 16)} <span id="elapsed">${elapsed(a)}</span></span><span>${st.done}/${st.total} sets</span></div>
     <div class="wk-progress"><div style="width:${st.total ? (st.done / st.total) * 100 : 0}%"></div></div>
     ${a.exercises.map((e, i) => exerciseCard(a, e, i)).join('') || '<p class="muted pad">No exercises available. Check your equipment in Settings.</p>'}
@@ -457,11 +476,11 @@ function viewProgress() {
       <div class="stat card"><span class="stat-v">${prs30}</span><span class="stat-l">PRs, 30 days</span></div>
     </div>
     <section class="card">
-      <div class="card-head"><h3>Physique</h3><button class="btn small ghost" data-act="measure">${icon('plus', 16)} Log</button></div>
+      <div class="card-head"><h3>Body</h3><button class="btn small ghost" data-act="measure">${icon('plus', 16)} Log</button></div>
       ${ratio ? `<div class="hero-num"><span class="hn-v">${ratio.toFixed(2)}</span><span class="hn-l">shoulder-to-waist ratio<br><span class="muted">${E.fmtKg(lastM.shoulders)} cm shoulders ÷ ${E.fmtKg(lastM.waist)} cm waist</span></span></div>
         ${ratioPts.length > 1 ? lineChart(ratioPts, { width, fmt: v => v.toFixed(2), label: 'Shoulder-to-waist ratio over time' }) : ''}
-        <p class="hint">The V-taper number. ~1.6 is the classic "golden ratio" look. Raise it with shoulder and lat growth while keeping the waist lean.</p>`
-        : '<p class="muted">Measure shoulder circumference (around the widest point of the delts) and waist (at the navel) every few weeks to track your V-taper.</p>'}
+        <p class="hint">Shoulder circumference divided by waist. It rises as your shoulders and back grow and your waist stays lean.</p>`
+        : '<p class="muted">Log your bodyweight and a few tape measurements every few weeks. Shoulders and waist together give you the shoulder-to-waist ratio.</p>'}
       ${lastM ? `<ul class="kv">${[['bodyweight', 'Bodyweight', 'kg'], ['shoulders', 'Shoulders', 'cm'], ['chest', 'Chest', 'cm'], ['arm', 'Arm (flexed)', 'cm'], ['waist', 'Waist', 'cm']]
         .filter(([k]) => lastM[k]).map(([k, l, u]) => `<li><span>${l}</span><span>${E.fmtKg(lastM[k])} ${u}</span></li>`).join('')}</ul>` : ''}
     </section>
@@ -476,7 +495,7 @@ function viewProgress() {
         const first = E.exposureScore(S, ex, h[0].sets), now = E.exposureScore(S, ex, last.sets);
         const delta = h.length > 1 && first ? Math.round((now / first - 1) * 100) : null;
         return `<button class="list-row" data-act="exercise" data-ex="${id}">
-          <span class="lr-main"><b>${esc(ex.name)}</b><span class="muted">${ex.loc === 'home' ? 'Home · ' : ''}${E.fmtKg(topW)} kg × ${last.sets.map(s => s.reps).join('/')}</span></span>
+          <span class="lr-main"><b>${esc(ex.name)}</b><span class="muted">${ex.locs.includes('gym') ? '' : `${locLabel(ex)} · `}${E.fmtKg(topW)} kg × ${last.sets.map(s => s.reps).join('/')}</span></span>
           ${delta != null ? `<span class="delta${delta > 0 ? ' up' : delta < 0 ? ' down' : ''}">${delta > 0 ? '+' : ''}${delta}%</span>` : ''}${icon('chevron', 16)}</button>`;
       }).join('') : '<p class="muted pad">Finish a workout and your exercises show up here.</p>'}
     </section>
@@ -490,7 +509,7 @@ function exerciseSheet(id) {
   const pts = h.filter(x => !x.deload).map(x => ({ t: new Date(x.date).getTime(), v: Math.round(E.exposureScore(S, ex, x.sets) * 10) / 10 }));
   const loaded = E.effLoad(S, ex, 0) > 0 || h.some(x => x.sets.some(s => +s.w > 0));
   const width = Math.min(innerWidth, 560) - 48;
-  return `<div class="sheet-head"><div><p class="eyebrow">${esc(SLOTS[ex.slot].name)} · ${ex.loc === 'gym' ? 'Gym' : 'Home'}</p><h2>${esc(ex.name)}</h2></div><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+  return `<div class="sheet-head"><div><p class="eyebrow">${esc(SLOTS[ex.slot].name)} · ${locLabel(ex)}</p><h2>${esc(ex.name)}</h2></div><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
     ${pts.length > 1 ? `<h3 class="sub">${loaded ? 'Estimated 1-rep max (kg)' : 'Best set (reps to failure)'}</h3>${lineChart(pts, { width, fmt: v => (loaded ? `${E.fmtKg(v)}` : `${Math.round(v)}`), label: 'Strength estimate over time' })}
       <p class="hint">${loaded ? 'Estimated from your best set each session (weight, reps and reps in reserve). It rises as you add reps or weight.' : 'Reps you could have done in your best set.'}</p>` : '<p class="muted">Log this exercise twice to see a trend.</p>'}
     <h3 class="sub">History</h3>
@@ -531,15 +550,13 @@ function viewPlan() {
       <div class="card-head"><h3>Days per week</h3></div>
       <div class="seg">${[2, 3, 4, 5, 6].map(n => `<button class="${S.settings.daysPerWeek === n ? 'on' : ''}" aria-pressed="${S.settings.daysPerWeek === n}" data-act="days" data-v="${n}">${n}</button>`).join('')}</div>
     </section>
-    <div class="section-head"><h2>This week</h2>${seg('ui.planLoc', [['gym', 'Gym'], ['home', 'Home']], { small: true })}</div>
+    <div class="section-head"><h2>This week</h2>${seg('ui.planLoc', Object.entries(LOCATIONS), { small: true })}</div>
     ${plan.days.map(d => {
       const done = S.planWeek.done.includes(d.index);
       return `<section class="card day${done ? ' done' : ''}">
         <div class="card-head"><h3>${done ? icon('check', 18) : ''}${esc(d.name)}</h3><span class="muted">~${d.minutes} min · ${d.sets} sets</span></div>
-        <ul class="slots">${d.slots.map(s => {
-          const ex = E.pickExercise(S, d.index, s, ui.planLoc);
-          return `<li><span><b>${ex ? esc(ex.name) : 'No option with your equipment'}</b><span class="muted">${esc(MUSCLE[s.muscle].name)}</span></span><span class="sets-n">${s.sets}×</span></li>`;
-        }).join('')}</ul></section>`;
+        <ul class="slots">${E.pickDayExercises(S, d, ui.planLoc).map(({ s, ex, sets }) =>
+          `<li><span><b>${esc(ex.name)}</b><span class="muted">${esc(MUSCLE[s.muscle].name)}</span></span><span class="sets-n">${sets}×</span></li>`).join('')}</ul></section>`;
     }).join('')}
     ${trimmedTotal ? `<p class="hint">${icon('info', 14)} Your ${S.profile.sessionMinutes}-min time cap cut ${plural(trimmedTotal, 'set')} this week, lowest priority first. Add a day or longer sessions to get them back.</p>` : ''}
     <section class="card flush">
@@ -565,14 +582,20 @@ function viewSettings() {
       <h3>Training</h3>
       <h4 class="sub">Experience</h4>${seg('profile.experience', Object.entries(EXPERIENCE).map(([k, v]) => [k, v.label]), { small: true })}
       <h4 class="sub">Session length (min)</h4>${seg('profile.sessionMinutes', [[45, '45'], [60, '60'], [75, '75'], [90, '90']], { numeric: true })}
-      <h4 class="sub">Where you train</h4>${seg('settings.location', [['ask', 'Ask each time'], ['gym', 'Always gym'], ['home', 'Always home']], { small: true })}
+      <h4 class="sub">Where you train</h4>${seg('settings.location', [['ask', 'Ask'], ...Object.entries(LOCATIONS)], { small: true })}
+      <p class="hint">“Ask” lets you pick Gym, Home or Anywhere before each workout.</p>
       <label class="field"><span>Bodyweight (kg)</span><input class="input" inputmode="decimal" data-bind="profile.bodyweight" value="${esc(S.profile.bodyweight ?? '')}" placeholder="optional"></label>
     </section>
     <section class="card">
-      <h3>Home gym</h3>
+      <h3>Home</h3>
       <div class="flush-in">${toggle('settings.home.bar', 'Pull-up bar')}${toggle('settings.home.chair', 'Sturdy chair or couch')}${toggle('settings.home.bench', 'Weight bench')}</div>
       <h4 class="sub">Kettlebells (kg)</h4>${weightPicker('settings.home.kb', KB_WEIGHTS)}
       <h4 class="sub">Dumbbells (kg)</h4>${weightPicker('settings.home.db', DB_WEIGHTS)}
+    </section>
+    <section class="card">
+      <h3>Anywhere</h3>
+      <p class="hint">For travel, hotels or days without equipment. A door and a towel are assumed: doorknob rows and curls stand in for the pull-up bar. A loaded backpack helps most for shoulders and arms; without it, side delts only get pike push-ups.</p>
+      <div class="flush-in">${anywhereToggles('settings.anywhere')}</div>
     </section>
     <section class="card">
       <h3>Gym weight jumps (kg)</h3>
@@ -601,15 +624,25 @@ function viewSettings() {
 
 // ---------- sheets ----------
 
-function locationSheet(day) {
-  const h = S.settings.home;
-  const kit = [h.bar && 'pull-up bar', h.kb.length && `${h.kb.length} kettlebell${h.kb.length > 1 ? 's' : ''}`, h.db.length && `${h.db.length} dumbbell weight${h.db.length > 1 ? 's' : ''}`, h.bench && 'bench'].filter(Boolean).join(', ') || 'bodyweight only';
-  return `<div class="sheet-head"><h2>Where are you training?</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
-    <div class="loc-choices">
-      <button class="loc-choice" data-act="start-at" data-day="${day}" data-loc="gym">${icon('gym', 32)}<b>Gym</b><span>Machines, cables, free weights</span></button>
-      <button class="loc-choice" data-act="start-at" data-day="${day}" data-loc="home">${icon('home', 32)}<b>Home</b><span>${esc(kit)}</span></button>
-    </div>
-    <p class="hint">Same muscles and sets either way. Only the exercises change.</p>`;
+function kitSummary(loc) {
+  if (loc === 'gym') return 'Machines, cables, free weights';
+  if (loc === 'home') {
+    const h = S.settings.home;
+    const kit = [h.bar && 'pull-up bar', h.kb.length && `${h.kb.length} kettlebell${h.kb.length > 1 ? 's' : ''}`,
+      h.db.length && `${h.db.length} dumbbell weight${h.db.length > 1 ? 's' : ''}`, h.bench && 'bench'].filter(Boolean).join(', ') || 'bodyweight only';
+    return kit[0].toUpperCase() + kit.slice(1);
+  }
+  const a = S.settings.anywhere;
+  return ['Bodyweight, a door', a.chair && 'a chair', a.backpack && 'a loaded backpack'].filter(Boolean).join(', ');
+}
+
+// Picks where to train: before a workout (day set) or to switch an ongoing one (switching = true).
+function locationSheet(day, switching) {
+  const cur = switching ? S.active.loc : null;
+  return `<div class="sheet-head"><h2>${switching ? 'Switch location' : 'Where are you training?'}</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    <div class="loc-list">${Object.entries(LOCATIONS).map(([loc, label]) => `<button class="loc-row${loc === cur ? ' cur' : ''}" ${switching ? `data-act="switch-to"` : `data-act="start-at" data-day="${day}"`} data-loc="${loc}"${loc === cur ? ' disabled' : ''}>
+        <span class="loc-ic">${icon(loc, 26)}</span><span class="lr-main"><b>${label}</b><span class="muted">${esc(kitSummary(loc))}</span></span>${loc === cur ? icon('check', 18) : icon('chevron', 16)}</button>`).join('')}</div>
+    <p class="hint">${switching ? 'Exercises you haven’t started get swapped for this location. Logged sets stay.' : 'Same muscles and sets everywhere. Only the exercises change.'}</p>`;
 }
 
 function pickDaySheet() {
@@ -667,8 +700,7 @@ function confirmSheet() {
 function prioritiesSheet() {
   return `<div class="sheet-head"><h2>Muscle priorities</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
     <p class="hint">Priority: ${TIERS.priority.start}→${TIERS.priority.peak} sets/week · Grow: ${TIERS.grow.start}→${TIERS.grow.peak} · Maintain: ${TIERS.maintain.start}→${TIERS.maintain.peak} · Indirect: only what compounds give.</p>
-    ${priorityEditor('priorities')}
-    <button class="btn ghost big" data-act="reset-prio">Reset to Aesthetic baseline</button>`;
+    ${priorityEditor('priorities')}`;
 }
 
 function renderSheet() {
@@ -676,7 +708,7 @@ function renderSheet() {
   const scroller = $sheet.querySelector('.sheet');
   const keep = scroller && scroller.dataset.type === sheet.type ? scroller.scrollTop : 0;
   const body = {
-    loc: () => locationSheet(sheet.day), pickDay: pickDaySheet, swap: () => swapSheet(sheet.i), checkin: checkinSheet,
+    loc: () => locationSheet(sheet.day, sheet.switching), pickDay: pickDaySheet, swap: () => swapSheet(sheet.i), checkin: checkinSheet,
     summary: summarySheet, confirm: confirmSheet, muscle: () => muscleSheet(sheet.m), exercise: () => exerciseSheet(sheet.ex),
     measure: measureSheet, priorities: prioritiesSheet,
   }[sheet.type]();
@@ -816,18 +848,20 @@ function finishWorkout() {
   scrollTo(0, 0);
 }
 
-function switchLocation() {
+// Rebuild the exercises you haven't started for the new location; started ones keep their place.
+function switchLocation(loc) {
   const a = S.active;
-  const loc = a.loc === 'gym' ? 'home' : 'gym';
-  for (let i = 0; i < a.exercises.length; i++) {
-    const e = a.exercises[i];
-    if (e.sets.some(s => s.done)) continue;
-    const ex = E.pickExercise(S, a.dayIndex, { slot: e.slot, k: e.k }, loc);
-    if (ex) a.exercises[i] = E.sessionExercise(S, ex, { slot: e.slot, muscle: e.muscle, k: e.k, sets: e.sets.length }, a.deload);
-  }
+  const key = e => `${e.slot}:${e.k}`;
+  const started = new Map(a.exercises.filter(e => e.sets.some(s => s.done)).map(e => [key(e), e]));
+  const fresh = E.createSession(S, E.buildPlan(S), a.dayIndex, loc).exercises;
+  const merged = fresh.map(f => started.get(key(f)) || f);
+  for (const e of started.values()) if (!merged.includes(e)) merged.push(e);
+  a.exercises = merged;
+  ui.openCue = new Set();
   a.loc = loc;
+  sheet = null;
   commit();
-  toast(`Switched to ${loc === 'gym' ? 'gym' : 'home'} exercises`);
+  toast(`Switched to ${LOCATIONS[loc]} exercises`);
 }
 
 function confirmThen(title, text, yes, fn, danger = false) { sheet = { type: 'confirm', title, text, yes, fn, danger }; renderSheet(); }
@@ -877,6 +911,7 @@ const A = {
     S.profile.sessionMinutes = o.sessionMinutes;
     S.profile.bodyweight = num(o.bodyweight) > 0 ? num(o.bodyweight) : null;
     S.settings.home = { ...o.home };
+    S.settings.anywhere = { ...o.anywhere };
     S.priorities = { ...o.priorities };
     S.onboarded = true;
     S.meso = { number: 1, week: 1, offsets: {}, startedAt: Date.now() };
@@ -939,7 +974,7 @@ const A = {
   'swap-to'(el) {
     const a = S.active, i = +el.dataset.i, e = a.exercises[i];
     const ex = EXERCISE[el.dataset.ex];
-    a.exercises[i] = E.sessionExercise(S, ex, { slot: e.slot, muscle: e.muscle, k: e.k, sets: e.sets.length }, a.deload);
+    a.exercises[i] = E.sessionExercise(S, ex, { slot: e.slot, muscle: e.muscle, k: e.k, sets: e.sets.length }, a.deload, a.loc);
     S.exPrefs[E.prefKey(S, a.loc, a.dayIndex, e)] = ex.id;
     sheet = null;
     commit();
@@ -947,16 +982,14 @@ const A = {
   upgrade(el) {
     const a = S.active, i = +el.dataset.i, e = a.exercises[i];
     const ex = EXERCISE[e.target.upgrade];
-    a.exercises[i] = E.sessionExercise(S, ex, { slot: e.slot, muscle: e.muscle, k: e.k, sets: e.sets.length }, a.deload);
+    a.exercises[i] = E.sessionExercise(S, ex, { slot: e.slot, muscle: e.muscle, k: e.k, sets: e.sets.length }, a.deload, a.loc);
     S.exPrefs[E.prefKey(S, a.loc, a.dayIndex, e)] = ex.id;
     commit();
     toast(`Switched to ${ex.name}`);
   },
   'remove-ex'(el) { S.active.exercises.splice(+el.dataset.i, 1); ui.openCue = new Set(); sheet = null; commit(); },
-  'switch-loc'() {
-    const to = S.active.loc === 'gym' ? 'home' : 'gym';
-    confirmThen(`Switch to ${to}?`, 'Exercises you haven’t started get swapped for their ' + to + ' versions. Logged sets stay.', 'Switch', switchLocation);
-  },
+  'switch-loc'() { sheet = { type: 'loc', switching: true }; renderSheet(); renderTimer(); },
+  'switch-to'(el) { switchLocation(el.dataset.loc); },
   finish() {
     if (!S.active.exercises.some(e => e.sets.some(s => s.done))) { toast('Log at least one set first'); return; }
     timer = null;
@@ -988,7 +1021,12 @@ const A = {
     toast('Measurements saved');
   },
   priorities() { sheet = { type: 'priorities' }; renderSheet(); },
-  'reset-prio'() { S.priorities = { ...BASELINE_PRIORITIES }; commit(); toast('Back to the Aesthetic baseline'); },
+  preset(el) {
+    const [root, p] = rootFor(el.dataset.path);
+    setPath(root, p, { ...PRESETS[el.dataset.v].priorities });
+    if (!el.dataset.path.startsWith('ob.')) save();
+    render();
+  },
   days(el) {
     const n = +el.dataset.v;
     if (n === S.settings.daysPerWeek) return;

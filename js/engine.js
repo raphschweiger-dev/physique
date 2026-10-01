@@ -1,6 +1,6 @@
 // Training logic: weekly targets, plan generation, exercise choice, progression, volume and fatigue.
 import {
-  MUSCLES, TIERS, SLOTS, MUSCLE_SLOTS, ALTERNATE, EXERCISES, EXERCISE, SPLITS, EXPERIENCE, TECHNIQUE_LEVELS,
+  MUSCLES, TIERS, SLOTS, MUSCLE_SLOTS, ALTERNATE, SLOT_FALLBACK, EXERCISES, EXERCISE, SPLITS, EXPERIENCE, TECHNIQUE_LEVELS,
 } from './data.js';
 
 export const ACC_WEEKS = 5;                 // build weeks per mesocycle; week 6 is the deload
@@ -189,28 +189,32 @@ export function buildPlan(state) {
 
 // ---------- exercise choice ----------
 
-export function available(state, ex) {
-  if (ex.loc === 'gym') return true;
-  const h = state.settings.home;
-  if (ex.needs && ex.needs.some(n => !h[n])) return false;
-  if (ex.equip === 'dumbbell') return h.db.length > 0;
-  if (ex.equip === 'kettlebell') return h.kb.length > 0;
-  if (ex.equip === 'free') return h.db.length + h.kb.length > 0;
+// Can this exercise be done at this location with the kit the user has there?
+export function available(state, ex, loc) {
+  if (!ex.locs.includes(loc)) return false;
+  if (loc === 'gym') return true;
+  const kit = loc === 'home' ? state.settings.home : state.settings.anywhere;
+  if (ex.needs && ex.needs.some(n => !kit[n])) return false;
+  if (ex.equip === 'dumbbell') return loc === 'home' && kit.db.length > 0;
+  if (ex.equip === 'kettlebell') return loc === 'home' && kit.kb.length > 0;
+  if (ex.equip === 'free') return loc === 'home' && kit.db.length + kit.kb.length > 0;
+  if (ex.equip === 'bag') return loc === 'anywhere' && !!kit.backpack;
   return true;
 }
 
 export function slotOptions(state, slot, loc) {
-  let opts = EXERCISES.filter(e => e.slot === slot && e.loc === loc && available(state, e));
-  if (!opts.length) {   // e.g. no pull-up bar at home: fall back to the muscle's other movements
-    const alt = MUSCLE_SLOTS[SLOTS[slot].muscle].filter(t => t !== slot);
-    opts = EXERCISES.filter(e => alt.includes(e.slot) && e.loc === loc && available(state, e));
-  }
+  const pick = slots => EXERCISES.filter(e => slots.includes(e.slot) && available(state, e, loc));
+  let opts = pick([slot]);
+  // e.g. no pull-up bar: try the muscle's other movements, then the closest related movement
+  if (!opts.length) opts = pick(MUSCLE_SLOTS[SLOTS[slot].muscle].filter(t => t !== slot));
+  if (!opts.length && SLOT_FALLBACK[slot]) opts = pick([SLOT_FALLBACK[slot]]);
   return opts;
 }
 
 export const prefKey = (state, loc, dayIndex, s) => `${loc}:${state.settings.daysPerWeek}:${dayIndex}:${s.slot}:${s.k}`;
 
-const NOT_DEFAULT = new Set(['h_negative_pullup', 'h_archer_pushup', 'h_nordic', 'back_squat', 'bench_press']);
+const NOT_DEFAULT = new Set(['h_negative_pullup', 'h_archer_pushup', 'h_nordic', 'back_squat', 'bench_press',
+  'a_one_arm_door_row', 'a_towel_rollout', 'a_fe_pike_pushup']);
 
 export function pickExercise(state, dayIndex, s, loc) {
   const opts = slotOptions(state, s.slot, loc);
@@ -218,11 +222,30 @@ export function pickExercise(state, dayIndex, s, loc) {
   const pref = state.exPrefs[prefKey(state, loc, dayIndex, s)];
   if (pref && opts.some(o => o.id === pref)) return EXERCISE[pref];
   const pool = opts.filter(o => !NOT_DEFAULT.has(o.id));
-  const list = pool.length ? pool : opts;
+  // At home, default to the moves written for home equipment; the shared bodyweight ones stay swappable.
+  const preferred = loc === 'home' ? pool.filter(o => o.origin === 'home') : pool;
+  const list = preferred.length ? preferred : pool.length ? pool : opts;
   // Vary the exercise between days that train the same muscle (Upper A vs Upper B).
   const m = SLOTS[s.slot].muscle;
   const rank = SPLITS[state.settings.daysPerWeek].slice(0, dayIndex).filter(d => d.muscles.includes(m)).length;
   return list[(rank + s.k) % list.length];
+}
+
+// The day's exercises at a location. Fallback movements can land on the same exercise twice
+// (e.g. curls standing in for forearm work); then another option is used, or the sets are merged.
+export function pickDayExercises(state, day, loc) {
+  const out = [];
+  for (const s of day.slots) {
+    let ex = pickExercise(state, day.index, s, loc);
+    if (!ex) continue;
+    if (out.some(o => o.ex.id === ex.id)) {
+      const alt = slotOptions(state, s.slot, loc).find(o => !NOT_DEFAULT.has(o.id) && !out.some(u => u.ex.id === o.id));
+      if (!alt) { out.find(o => o.ex.id === ex.id).sets += s.sets; continue; }
+      ex = alt;
+    }
+    out.push({ s, ex, sets: s.sets });
+  }
+  return out;
 }
 
 // ---------- history & progression ----------
@@ -252,22 +275,31 @@ export function exposureScore(state, ex, sets) {
   return best;
 }
 
-export function weightSteps(state, ex) {
-  if (ex.loc === 'gym') return null;
-  const h = state.settings.home;
-  const list = ex.equip === 'dumbbell' ? h.db : ex.equip === 'kettlebell' ? h.kb : [...h.db, ...h.kb];
-  const steps = [...new Set(list.map(Number))].filter(x => x > 0).sort((a, b) => a - b);
+// Loads you can actually use for an exercise at a location: null = anything (gym), else an ascending
+// list. Bodyweight moves start at 0 (= no added load). Anywhere, the loaded backpack goes up in 1-kg steps.
+export function weightSteps(state, ex, loc) {
+  if (loc === 'gym') return null;
+  if (ex.noLoad) return [0];
+  let steps;
+  if (loc === 'anywhere') {
+    const a = state.settings.anywhere;
+    steps = a.backpack ? Array.from({ length: Math.max(1, Math.floor(a.backpackMax || 10)) }, (_, i) => i + 1) : [];
+  } else {
+    const h = state.settings.home;
+    const list = ex.equip === 'dumbbell' ? h.db : ex.equip === 'kettlebell' ? h.kb : [...h.db, ...h.kb];
+    steps = [...new Set(list.map(Number))].filter(x => x > 0).sort((a, b) => a - b);
+  }
   return ex.equip === 'bodyweight' ? [0, ...steps] : steps;
 }
 
-export function nextWeight(state, ex, w) {
-  const steps = weightSteps(state, ex);
+export function nextWeight(state, ex, w, loc) {
+  const steps = weightSteps(state, ex, loc);
   if (!steps) return roundTo(w + (state.settings.gymSteps[ex.equip] ?? 2.5), 0.25);
   return steps.find(x => x > w + 1e-9) ?? null;
 }
 
-function prevWeight(state, ex, w) {
-  const steps = weightSteps(state, ex);
+function prevWeight(state, ex, w, loc) {
+  const steps = weightSteps(state, ex, loc);
   if (!steps) return Math.max(0, roundTo(w - (state.settings.gymSteps[ex.equip] ?? 2.5), 0.25));
   return [...steps].reverse().find(x => x < w - 1e-9) ?? null;
 }
@@ -275,25 +307,44 @@ function prevWeight(state, ex, w) {
 const repsStr = sets => sets.map(s => s.reps).join('/');
 
 // Double progression: add reps until every set reaches the top of the range, then add weight.
-// At home with no heavier weight: harder technique, then a harder variation, then more reps.
-export function progressionTarget(state, ex, nSets, rir, deload) {
+// With no heavier weight available: harder technique, then a harder variation, then more reps.
+// `loc` decides which loads exist (gym: any; home: your dumbbells/kettlebells; anywhere: the backpack).
+export function progressionTarget(state, ex, nSets, rir, deload, loc) {
   const [lo, hi] = ex.reps;
   const mid = Math.round((lo + hi) / 2);
   const hist = history(state, ex.id).filter(h => !h.deload);
   const pad = arr => Array.from({ length: nSets }, (_, i) => arr[Math.min(i, arr.length - 1)]);
   if (!hist.length) {
-    return {
-      first: true, level: 0, weight: ex.equip === 'bodyweight' ? 0 : '', reps: pad([mid]), action: 'first',
-      note: ex.equip === 'bodyweight'
-        ? `First time: aim for ${lo}–${hi} reps, stopping ${rir} short of failure.`
-        : `First time: pick a weight you can lift about ${mid} times with ${rir} left in the tank.`,
-    };
+    const note = ex.equip === 'bodyweight'
+      ? `First time: aim for ${lo}–${hi} reps, stopping ${rir} short of failure.`
+      : ex.equip === 'bag'
+        ? `First time: load the backpack so you get about ${mid} reps with ${rir} left in the tank. 1 litre of water ≈ 1 kg.`
+        : `First time: pick a weight you can lift about ${mid} times with ${rir} left in the tank.`;
+    return { first: true, level: 0, weight: ex.equip === 'bodyweight' ? 0 : '', reps: pad([mid]), action: 'first', note };
   }
   const last = hist[hist.length - 1];
   const level = last.level || 0;
-  const topW = Math.max(...last.sets.map(s => +s.w || 0));
-  const work = last.sets.filter(s => (+s.w || 0) === topW);
-  const lastLine = `Last: ${fmtKg(topW)} kg × ${repsStr(work)}`;
+  const work0 = last.sets.filter(s => (+s.w || 0) === Math.max(...last.sets.map(x => +x.w || 0)));
+  const lastLine = `Last: ${fmtKg(+work0[0].w || 0)} kg × ${repsStr(work0)}`;
+  const steps = weightSteps(state, ex, loc);
+  const heaviestHere = steps && steps.length ? steps[steps.length - 1] : null;
+  let topW = +work0[0].w || 0;
+  let work = work0;
+
+  // Last time used more load than exists here (e.g. +4 kg at home, no backpack today):
+  // estimate the reps that match the same effort with the heaviest load available.
+  if (heaviestHere != null && topW > heaviestHere + 1e-9) {
+    const best = Math.max(...work.map(s => e1rm(effLoad(state, ex, topW), s.reps, +s.rir || 0)));
+    const r = clamp(Math.floor(30 * (best / effLoad(state, ex, heaviestHere) - 1) - rir), lo, MAX_REPS);
+    topW = heaviestHere;
+    work = work.map(s => ({ ...s, w: topW, reps: r }));
+    if (deload) {
+      return { level, weight: topW, reps: pad([Math.max(1, Math.min(r, hi) - 3)]), action: 'deload', last: lastLine,
+        note: 'Deload: stop about 4 reps short of failure.' };
+    }
+    return { level, weight: topW, reps: pad([r]), action: 'reps', last: lastLine,
+      note: `Only ${fmtKg(topW)} kg available here, so aim for more reps to match the effort.` };
+  }
 
   if (deload) {
     return { level, weight: topW, reps: pad(work.map(s => Math.max(1, Math.min(s.reps, hi) - 3))), action: 'deload', last: lastLine,
@@ -301,7 +352,7 @@ export function progressionTarget(state, ex, nSets, rir, deload) {
   }
 
   if (work.every(s => s.reps < lo - 1)) {
-    const pw = prevWeight(state, ex, topW);
+    const pw = prevWeight(state, ex, topW, loc);
     if (pw != null && pw < topW) {
       return { level, weight: pw, reps: pad([mid]), action: 'down', last: lastLine,
         note: `Below the ${lo}–${hi} range last time, so drop to ${fmtKg(pw)} kg and own the range.` };
@@ -309,12 +360,12 @@ export function progressionTarget(state, ex, nSets, rir, deload) {
   }
 
   if (work.every(s => s.reps >= hi)) {
-    const upgrade = ex.next && available(state, EXERCISE[ex.next]) ? ex.next : null;
+    const upgrade = ex.next && available(state, EXERCISE[ex.next], loc) ? ex.next : null;
     if (upgrade && ex.equip === 'bodyweight') {
       return { level, weight: topW, reps: pad(work.map(s => Math.min(MAX_REPS, s.reps + 1))), action: 'upgrade', upgrade, last: lastLine,
         note: `Top of the range. Move up to ${EXERCISE[upgrade].name} (or keep adding reps here).` };
     }
-    const nw = nextWeight(state, ex, topW);
+    const nw = nextWeight(state, ex, topW, loc);
     if (nw != null) {
       const best = Math.max(...work.map(s => e1rm(effLoad(state, ex, topW), s.reps, +s.rir || 0)));
       const pred = Math.floor(30 * (best / effLoad(state, ex, nw) - 1) - rir);
@@ -324,15 +375,16 @@ export function progressionTarget(state, ex, nSets, rir, deload) {
     }
     if (level < TECHNIQUE_LEVELS.length - 1) {
       const nl = level + 1;
+      const why = steps && steps.length <= 1 ? 'No way to add weight here' : 'Heaviest weight maxed out';
       return { level: nl, weight: topW, reps: pad([clamp(hi - 4, lo, hi)]), action: 'technique', last: lastLine,
-        note: `Heaviest weight maxed out. Make it harder: ${TECHNIQUE_LEVELS[nl].name}.` };
+        note: `${why}. Make it harder: ${TECHNIQUE_LEVELS[nl].name}.` };
     }
     if (upgrade) {
       return { level, weight: topW, reps: pad(work.map(s => Math.min(MAX_REPS, s.reps + 1))), action: 'upgrade', upgrade, last: lastLine,
         note: `This variation is maxed. Move up to ${EXERCISE[upgrade].name}.` };
     }
     return { level, weight: topW, reps: pad(work.map(s => Math.min(MAX_REPS, s.reps + 1))), action: 'reps', last: lastLine,
-      note: `Weight and technique maxed. Keep adding reps (up to ${MAX_REPS}) or get a heavier weight.` };
+      note: `Weight and technique maxed. Keep adding reps (up to ${MAX_REPS}).` };
   }
 
   // Beat last time: +1 rep, adjusted when last session's effort differed from this week's target.
@@ -340,9 +392,9 @@ export function progressionTarget(state, ex, nSets, rir, deload) {
   return { level, weight: topW, reps: pad(reps), action: 'reps', last: lastLine, note: 'Beat last time: add a rep where you can.' };
 }
 
-export function sessionExercise(state, ex, s, deload) {
+export function sessionExercise(state, ex, s, deload, loc) {
   const rir = weekRir(state.meso, SLOTS[ex.slot].compound);
-  const t = progressionTarget(state, ex, s.sets, rir, deload);
+  const t = progressionTarget(state, ex, s.sets, rir, deload, loc);
   return {
     slot: s.slot, muscle: s.muscle, k: s.k, exId: ex.id, rir, level: t.level, target: t,
     sets: t.reps.map(r => ({ w: t.weight, reps: r, rir, done: false })),
@@ -352,11 +404,7 @@ export function sessionExercise(state, ex, s, deload) {
 export function createSession(state, plan, dayIndex, loc) {
   const day = plan.days[dayIndex];
   const deload = isDeload(state.meso);
-  const exercises = [];
-  for (const s of day.slots) {
-    const ex = pickExercise(state, dayIndex, s, loc);
-    if (ex) exercises.push(sessionExercise(state, ex, s, deload));
-  }
+  const exercises = pickDayExercises(state, day, loc).map(({ s, ex, sets }) => sessionExercise(state, ex, { ...s, sets }, deload, loc));
   return {
     id: uid(), startedAt: Date.now(), dayIndex, dayName: day.name, loc, meso: state.meso.number, week: state.meso.week,
     deload, planWeek: state.planWeek.index, exercises,

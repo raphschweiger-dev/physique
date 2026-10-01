@@ -1,6 +1,6 @@
 // Offline support: precache the app shell, serve from cache first, refresh the cache in the background.
 // Bump VERSION on every deploy so phones pick up the new files.
-const VERSION = 'physique-v1';
+const VERSION = 'physique-v2';
 const ASSETS = [
   './',
   'index.html',

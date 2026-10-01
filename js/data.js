@@ -30,12 +30,36 @@ export const TIERS = {
 };
 export const TIER_ORDER = ['priority', 'grow', 'maintain', 'indirect'];
 
-export const BASELINE_PRIORITIES = {
-  chest_upper: 'priority', delts_side: 'priority', lats: 'priority', biceps: 'priority', triceps: 'priority',
-  chest: 'grow', upper_back: 'grow', delts_rear: 'grow', abs: 'grow', forearms: 'grow',
-  quads: 'maintain', hamstrings: 'maintain', glutes: 'maintain', calves: 'maintain',
-  delts_front: 'indirect',
+// Starting points for the priority editor. Upper-body focus is the default.
+export const PRESETS = {
+  upper: {
+    label: 'Upper-body focus',
+    priorities: {
+      chest_upper: 'priority', delts_side: 'priority', lats: 'priority', biceps: 'priority', triceps: 'priority',
+      chest: 'grow', upper_back: 'grow', delts_rear: 'grow', abs: 'grow', forearms: 'grow',
+      quads: 'maintain', hamstrings: 'maintain', glutes: 'maintain', calves: 'maintain',
+      delts_front: 'indirect',
+    },
+  },
+  balanced: {
+    label: 'Balanced',
+    priorities: {
+      chest_upper: 'grow', chest: 'grow', delts_side: 'grow', delts_rear: 'grow', lats: 'grow', upper_back: 'grow',
+      biceps: 'grow', triceps: 'grow', abs: 'grow', quads: 'grow', hamstrings: 'grow', glutes: 'grow', calves: 'grow',
+      forearms: 'maintain', delts_front: 'indirect',
+    },
+  },
+  lower: {
+    label: 'Lower-body focus',
+    priorities: {
+      glutes: 'priority', quads: 'priority', hamstrings: 'priority',
+      calves: 'grow', abs: 'grow', lats: 'grow', upper_back: 'grow', delts_side: 'grow',
+      chest_upper: 'maintain', chest: 'maintain', delts_rear: 'maintain', biceps: 'maintain', triceps: 'maintain', forearms: 'maintain',
+      delts_front: 'indirect',
+    },
+  },
 };
+export const BASELINE_PRIORITIES = PRESETS.upper.priorities;
 
 export const EXPERIENCE = {
   beginner: { label: 'Under 1 year', mult: 0.8 },
@@ -88,10 +112,26 @@ export const MUSCLE_SLOTS = {
 // Muscles whose single-movement sessions alternate (e.g. RDL one day, leg curl the next).
 export const ALTERNATE = new Set(['chest', 'hamstrings']);
 
+// When neither a movement nor the muscle's other movements can be done with the kit at hand,
+// use the closest related movement (e.g. no backpack for lateral raises: pike push-ups).
+export const SLOT_FALLBACK = {
+  incline_press: 'chest_press', chest_fly: 'chest_press', lateral_raise: 'overhead_press', forearm: 'curl',
+  lat_iso: 'vertical_pull', vertical_pull: 'row', rear_delt: 'row', quad_iso: 'squat', leg_curl: 'hinge', glute: 'hinge',
+};
+
+// gym; home = pull-up bar, kettlebells, dumbbells; anywhere = bodyweight, a door and a towel,
+// optionally a chair and a backpack you can load with books or water bottles.
+export const LOCATIONS = { gym: 'Gym', home: 'Home', anywhere: 'Anywhere' };
+
 // Equipment: gym = barbell | dumbbell | cable | machine | smith | bodyweight (weight = added load).
-// Home = dumbbell | kettlebell | free (either) | bodyweight (weight = added load).
-const G = (id, name, slot, equip, reps, cue, extra = {}) => ({ id, name, slot, loc: 'gym', equip, reps, cue, ...extra });
-const H = (id, name, slot, equip, reps, cue, extra = {}) => ({ id, name, slot, loc: 'home', equip, reps, cue, ...extra });
+// Home = dumbbell | kettlebell | free (either) | bodyweight. Anywhere = bodyweight | bag (loaded backpack).
+// noLoad marks bodyweight moves where strapping on weight makes no sense.
+// Bodyweight moves work at home too (shared progress); home defaults still prefer the home-written ones.
+const HA = ['home', 'anywhere'];
+const G = (id, name, slot, equip, reps, cue, extra = {}) => ({ id, name, slot, origin: 'gym', locs: ['gym'], equip, reps, cue, ...extra });
+const H = (id, name, slot, equip, reps, cue, extra = {}) => ({ id, name, slot, origin: 'home', locs: ['home'], equip, reps, cue, ...extra });
+const A = (id, name, slot, equip, reps, cue, extra = {}) =>
+  ({ id, name, slot, origin: 'anywhere', locs: equip === 'bag' ? ['anywhere'] : HA, equip, reps, cue, ...extra });
 
 export const EXERCISES = [
   // Upper chest
@@ -99,8 +139,8 @@ export const EXERCISES = [
   G('incline_machine_press', 'Incline machine press', 'incline_press', 'machine', [8, 12], 'Seat set so the handles start at upper-chest height. Full stretch at the bottom.'),
   G('incline_smith_press', 'Incline Smith press', 'incline_press', 'smith', [6, 10], 'Bench at ~30°, bar to the upper chest, 2–3 s lowering.'),
   G('low_high_fly', 'Low-to-high cable fly', 'incline_press', 'cable', [10, 15], 'Pulleys low, sweep up to chin height. Big stretch at the bottom.', { map: { chest_upper: 1, chest: 0.5 } }),
-  H('h_fe_pushup', 'Feet-elevated push-up', 'incline_press', 'bodyweight', [8, 20], 'Feet on a chair or couch, hands a bit wider than shoulders, chest all the way down.', { bw: 0.7, needs: ['chair'], next: 'h_fe_deficit_pushup' }),
-  H('h_fe_deficit_pushup', 'Feet-elevated deficit push-up', 'incline_press', 'bodyweight', [8, 20], 'Feet up, hands on dumbbells or kettlebells so your chest sinks below your hands. Past 20 reps wear a backpack with a weight.', { bw: 0.72, needs: ['chair'] }),
+  H('h_fe_pushup', 'Feet-elevated push-up', 'incline_press', 'bodyweight', [8, 20], 'Feet on a chair, bed or couch, hands a bit wider than shoulders, chest all the way down.', { bw: 0.7, needs: ['chair'], next: 'h_fe_deficit_pushup', locs: HA }),
+  H('h_fe_deficit_pushup', 'Feet-elevated deficit push-up', 'incline_press', 'bodyweight', [8, 20], 'Feet up, hands on dumbbells or stacks of books so your chest sinks below your hands. Past 20 reps wear a loaded backpack.', { bw: 0.72, needs: ['chair'], locs: HA }),
   H('h_incline_db_press', 'Incline DB press', 'incline_press', 'dumbbell', [10, 25], 'Bench at ~30°, deep stretch at the bottom.', { needs: ['bench'] }),
 
   // Mid chest
@@ -111,14 +151,15 @@ export const EXERCISES = [
   G('cable_fly', 'Cable fly', 'chest_fly', 'cable', [10, 15], 'Soft elbows, let the handles travel behind you for a big stretch.'),
   G('pec_deck', 'Pec deck', 'chest_fly', 'machine', [10, 15], 'Set the arms so you get a full stretch. Squeeze briefly at the front.'),
   G('db_fly', 'DB fly', 'chest_fly', 'dumbbell', [10, 15], 'Wide arc, deep stretch, stop before the bells touch.'),
-  H('h_pushup', 'Push-up', 'chest_press', 'bodyweight', [8, 20], 'Body in one line, chest to the floor, 2 s down.', { bw: 0.64, next: 'h_deficit_pushup' }),
-  H('h_deficit_pushup', 'Deficit push-up', 'chest_press', 'bodyweight', [8, 20], 'Hands on dumbbells or kettlebells, sink deep for a big stretch, 2 s down.', { bw: 0.66, next: 'h_archer_pushup' }),
-  H('h_archer_pushup', 'Archer push-up', 'chest_press', 'bodyweight', [5, 12], 'Shift your weight onto one arm, the other stays long. Reps per side.', { bw: 0.8 }),
+  H('h_pushup', 'Push-up', 'chest_press', 'bodyweight', [8, 20], 'Body in one line, chest to the floor, 2 s down.', { bw: 0.64, next: 'h_deficit_pushup', locs: HA }),
+  H('h_deficit_pushup', 'Deficit push-up', 'chest_press', 'bodyweight', [8, 20], 'Hands on dumbbells, kettlebells or stacks of books, sink deep for a big stretch, 2 s down.', { bw: 0.66, next: 'h_archer_pushup', locs: HA }),
+  H('h_archer_pushup', 'Archer push-up', 'chest_press', 'bodyweight', [5, 12], 'Shift your weight onto one arm, the other stays long. Reps per side.', { bw: 0.8, locs: HA }),
   H('h_db_bench_press', 'DB bench press', 'chest_press', 'dumbbell', [10, 25], 'Deep stretch at the bottom, press up and slightly in.', { needs: ['bench'] }),
   H('h_db_floor_press', 'DB floor press', 'chest_press', 'dumbbell', [12, 25], 'Lie on the floor, pause with the elbows on the ground.'),
   H('h_db_fly', 'DB fly', 'chest_fly', 'dumbbell', [12, 25], 'On a bench, wide arc into a deep stretch.', { needs: ['bench'] }),
-  H('h_wide_deficit_pushup', 'Wide deficit push-up (slow)', 'chest_fly', 'bodyweight', [8, 20], 'Hands wide on dumbbells, 3-second lowering into a deep stretch.', { bw: 0.64, map: { chest: 1, chest_upper: 0.5, triceps: 0.5 } }),
+  H('h_wide_deficit_pushup', 'Wide deficit push-up (slow)', 'chest_fly', 'bodyweight', [8, 20], 'Hands wide on dumbbells or books, 3-second lowering into a deep stretch.', { bw: 0.64, map: { chest: 1, chest_upper: 0.5, triceps: 0.5 }, locs: HA }),
   H('h_floor_fly', 'DB floor fly', 'chest_fly', 'dumbbell', [15, 30], 'Lie on the floor, slow arc until the elbows touch down.'),
+  A('a_slide_fly', 'Sliding chest fly', 'chest_fly', 'bodyweight', [6, 15], 'Knees down, hands on two towels or socks on a smooth floor. Slide the hands apart into a deep chest stretch, then squeeze them back together.', { noLoad: true, map: { chest: 1, chest_upper: 0.5, delts_front: 0.5 }, locs: HA }),
 
   // Lats
   G('lat_pulldown', 'Lat pulldown', 'vertical_pull', 'cable', [8, 12], 'Full stretch at the top, drive the elbows down to your sides.'),
@@ -130,9 +171,11 @@ export const EXERCISES = [
   G('machine_pullover', 'Machine pullover', 'lat_iso', 'machine', [10, 15], 'Start fully stretched overhead, drive the elbows down.'),
   H('h_pullup', 'Pull-up', 'vertical_pull', 'bodyweight', [5, 12], 'Dead hang, chest up to the bar, 2-s lowering. Past 12 reps hold a weight between your feet.', { bw: 1, needs: ['bar'] }),
   H('h_chinup', 'Chin-up', 'vertical_pull', 'bodyweight', [5, 12], 'Palms facing you, full hang at the bottom. Hits the biceps hard too.', { bw: 1, needs: ['bar'] }),
-  H('h_negative_pullup', 'Pull-up negatives', 'vertical_pull', 'bodyweight', [3, 8], 'Jump to the top, lower yourself over 4–5 s. Use until you can do 5 strict pull-ups.', { bw: 1, needs: ['bar'], next: 'h_pullup' }),
+  H('h_negative_pullup', 'Pull-up negatives', 'vertical_pull', 'bodyweight', [3, 8], 'Jump to the top, lower yourself over 4–5 s. Use until you can do 5 strict pull-ups.', { bw: 1, needs: ['bar'], next: 'h_pullup', noLoad: true }),
   H('h_lat_kb_row', 'Lat-focus row', 'lat_iso', 'free', [10, 20], 'Hand on a chair, let the weight stretch forward, pull the elbow back to your hip.', { map: { lats: 1, upper_back: 0.5 } }),
   H('h_kb_pullover', 'Floor pullover', 'lat_iso', 'free', [10, 20], 'Lying down, lower the weight behind your head with long arms.'),
+  A('a_door_lat_row', 'Doorknob lat row', 'vertical_pull', 'bodyweight', [8, 20], 'Hold both doorknobs of a sturdy open door, feet either side of the door edge, lean back with straight arms. Pull your elbows down to your hips. Feet closer to the door = harder.', { bw: 0.6 }),
+  A('a_towel_lat_pull', 'Kneeling towel lat pull', 'lat_iso', 'bodyweight', [8, 15], 'Kneel with your hands on a towel on a smooth floor. Slide forward until your arms are overhead and your lats stretch, then pull the towel back to your knees with straight arms.', { noLoad: true, map: { lats: 1, abs: 0.5 } }),
 
   // Upper back
   G('chest_supported_row', 'Chest-supported row', 'row', 'machine', [8, 12], 'Let the shoulder blades spread at the bottom, row to the lower ribs.'),
@@ -142,12 +185,15 @@ export const EXERCISES = [
   H('h_kb_row', 'One-arm KB row', 'row', 'kettlebell', [10, 20], 'Hand on a chair, let the shoulder stretch down, row to your hip.'),
   H('h_db_row', 'One-arm DB row', 'row', 'dumbbell', [12, 25], 'Hand on a chair, slow lowering, squeeze at the top.'),
   H('h_bent_db_row', 'Bent-over DB row', 'row', 'dumbbell', [12, 25], 'Hinge to ~45°, row both dumbbells to the lower ribs.'),
+  A('a_door_row', 'Doorknob row', 'row', 'bodyweight', [8, 20], 'Hold both doorknobs, feet either side of the door edge, lean back. Row your chest to the door edge and squeeze the shoulder blades. Feet closer to the door = harder.', { bw: 0.6, next: 'a_one_arm_door_row' }),
+  A('a_one_arm_door_row', 'One-arm doorknob row', 'row', 'bodyweight', [6, 15], 'Same setup with one hand on the knob, the other arm free. Reps per side.', { bw: 0.6 }),
 
   // Front delts (only programmed if you raise front delts above "Indirect only")
   G('machine_shoulder_press', 'Machine shoulder press', 'overhead_press', 'machine', [8, 12], 'Handles start at ear height, press without shrugging.'),
   G('seated_db_press', 'Seated DB shoulder press', 'overhead_press', 'dumbbell', [8, 12], 'Lower to ear level, press up and slightly in.'),
   H('h_kb_press', 'KB overhead press', 'overhead_press', 'kettlebell', [8, 15], 'Bell on the back of the forearm, press up without leaning back.'),
-  H('h_pike_pushup', 'Pike push-up', 'overhead_press', 'bodyweight', [6, 15], 'Hips high, head travels in front of the hands.', { bw: 0.5 }),
+  H('h_pike_pushup', 'Pike push-up', 'overhead_press', 'bodyweight', [6, 15], 'Hips high, head travels in front of the hands.', { bw: 0.5, next: 'a_fe_pike_pushup', locs: HA }),
+  A('a_fe_pike_pushup', 'Feet-elevated pike push-up', 'overhead_press', 'bodyweight', [5, 15], 'Feet on a chair, hips high over your hands, lower your head in front of your hands.', { bw: 0.65, needs: ['chair'], locs: HA }),
 
   // Side delts
   G('cable_lateral', 'Cable lateral raise', 'lateral_raise', 'cable', [12, 20], 'Cable behind you, start from across the body (stretch), raise to shoulder height.'),
@@ -156,6 +202,7 @@ export const EXERCISES = [
   H('h_db_lateral', 'DB lateral raise', 'lateral_raise', 'dumbbell', [12, 25], 'Slight forward lean, lead with the elbows, stop at shoulder height.'),
   H('h_lean_lateral', 'Lean-away lateral raise', 'lateral_raise', 'dumbbell', [12, 25], 'Hold a door frame and lean away; tension starts at the bottom (stretch). Reps per side.'),
   H('h_side_lying_lateral', 'Side-lying lateral raise', 'lateral_raise', 'dumbbell', [12, 25], 'Lie on your side on the floor or couch, raise to vertical. Hardest at the bottom.'),
+  A('a_bag_lateral', 'Bag lateral raise', 'lateral_raise', 'bag', [12, 25], 'Hold the loaded backpack by its top handle, other hand on a door frame, lean slightly away and raise to shoulder height. Reps per side. 1 litre of water ≈ 1 kg.'),
 
   // Rear delts
   G('reverse_pec_deck', 'Reverse pec deck', 'rear_delt', 'machine', [12, 20], 'Arms nearly straight, sweep wide, don’t shrug.'),
@@ -163,6 +210,9 @@ export const EXERCISES = [
   G('face_pull', 'Face pull', 'rear_delt', 'cable', [12, 20], 'Rope at face height, pull to the ears with the elbows high.'),
   H('h_db_rear_fly', 'Bent-over DB reverse fly', 'rear_delt', 'dumbbell', [12, 25], 'Chest toward the thighs, sweep the arms wide, pinkies up.'),
   H('h_kb_rear_row', 'Wide rear-delt row', 'rear_delt', 'free', [12, 20], 'Bent over, elbow flared out to 90°, pull toward the ceiling.'),
+  A('a_wide_door_row', 'Wide doorknob row', 'rear_delt', 'bodyweight', [10, 20], 'Doorknob row with the elbows flared out at shoulder height. Pull until your hands are beside your ears.', { bw: 0.6, map: { delts_rear: 1, upper_back: 0.5 } }),
+  A('a_prone_t_raise', 'Prone T-raise', 'rear_delt', 'bodyweight', [12, 30], 'Lie face down, arms straight out to the sides, thumbs up. Lift as high as you can and hold for 1 s.', { noLoad: true, locs: HA }),
+  A('a_bag_rear_fly', 'Bag reverse fly', 'rear_delt', 'bag', [12, 25], 'Bent over, one arm at a time, sweep the bag out wide to shoulder height. Reps per side.'),
 
   // Biceps
   G('incline_db_curl', 'Incline DB curl', 'curl', 'dumbbell', [8, 15], 'Arms hang behind your body for a full biceps stretch. No swinging.'),
@@ -173,6 +223,8 @@ export const EXERCISES = [
   H('h_db_curl', 'DB curl', 'curl', 'dumbbell', [10, 20], 'Full lockout at the bottom, turn the pinky up, 2-s lowering.'),
   H('h_hammer_curl', 'Hammer curl', 'curl', 'dumbbell', [10, 20], 'Neutral grip, elbows still.', { map: { biceps: 1, forearms: 1 } }),
   H('h_kb_curl', 'KB curl', 'curl', 'kettlebell', [8, 15], 'Hold the handle with the bell hanging, curl without swinging.'),
+  A('a_door_curl', 'Doorknob curl', 'curl', 'bodyweight', [8, 20], 'Palms up on the doorknobs, lean back with straight arms, then curl yourself toward the door without moving the elbows. Feet closer = harder.', { bw: 0.5 }),
+  A('a_bag_curl', 'Bag curl', 'curl', 'bag', [10, 20], 'Hold the backpack by its top handle, elbow pinned, full stretch at the bottom. Reps per arm.'),
 
   // Triceps
   G('oh_cable_ext', 'Overhead cable extension', 'triceps_oh', 'cable', [10, 15], 'Face away from the cable, elbows by your head, deep stretch (long head).'),
@@ -183,22 +235,28 @@ export const EXERCISES = [
   H('h_oh_db_ext', 'Overhead DB extension', 'triceps_oh', 'dumbbell', [12, 25], 'Both hands on one dumbbell, elbows up, lower deep behind your head.'),
   H('h_oh_kb_ext', 'Overhead KB extension', 'triceps_oh', 'kettlebell', [10, 20], 'Hold the bell by the horns, lower behind your head.'),
   H('h_floor_skull', 'Floor skull crusher', 'triceps_ext', 'dumbbell', [12, 25], 'Lie on the floor, lower the dumbbells behind your head.'),
-  H('h_close_pushup', 'Close-grip push-up', 'triceps_ext', 'bodyweight', [8, 20], 'Hands under the shoulders, elbows brush your ribs.', { bw: 0.64, map: { triceps: 1, chest: 0.5 } }),
-  H('h_chair_dip', 'Chair dip', 'triceps_ext', 'bodyweight', [10, 25], 'Hands on a sturdy chair behind you, elbows straight back.', { bw: 0.5, needs: ['chair'] }),
+  H('h_close_pushup', 'Close-grip push-up', 'triceps_ext', 'bodyweight', [8, 20], 'Hands under the shoulders, elbows brush your ribs.', { bw: 0.64, map: { triceps: 1, chest: 0.5 }, locs: HA }),
+  H('h_chair_dip', 'Chair dip', 'triceps_ext', 'bodyweight', [10, 25], 'Hands on a sturdy chair behind you, elbows straight back.', { bw: 0.5, needs: ['chair'], locs: HA }),
+  A('a_bw_triceps_ext', 'Bodyweight triceps extension', 'triceps_oh', 'bodyweight', [8, 20], 'Hands on a chair, bed edge or wall, lean in with straight arms. Bend only the elbows until your head drops below your hands, then press back. Lower surface = harder.', { bw: 0.5, locs: HA }),
+  A('a_bag_oh_ext', 'Bag overhead extension', 'triceps_oh', 'bag', [10, 20], 'Hold the backpack behind your head with both hands, lower deep for the stretch, extend.'),
 
   // Forearms
   G('db_wrist_curl', 'Wrist curl', 'forearm', 'dumbbell', [12, 20], 'Forearms on a bench, let the weight roll to the fingertips.'),
   G('reverse_curl', 'Reverse EZ curl', 'forearm', 'barbell', [10, 15], 'Overhand grip, elbows still.', { map: { forearms: 1, biceps: 0.5 } }),
   H('h_wrist_curl', 'DB wrist curl', 'forearm', 'dumbbell', [15, 30], 'Forearms on your thighs, let the weight roll to the fingertips.'),
   H('h_reverse_curl', 'Reverse DB curl', 'forearm', 'dumbbell', [12, 25], 'Overhand grip, elbows still.', { map: { forearms: 1, biceps: 0.5 } }),
+  A('a_bag_wrist_curl', 'Bag wrist curl', 'forearm', 'bag', [15, 30], 'Forearm on your thigh, hold the strap, let the bag roll down to your fingertips, curl up.'),
 
   // Abs
   G('cable_crunch', 'Cable crunch', 'abs', 'cable', [10, 15], 'Round the spine, ribs to hips. Don’t sit back into it.'),
   G('hanging_leg_raise', 'Hanging leg raise', 'abs', 'bodyweight', [8, 15], 'Curl the pelvis up, no swinging.'),
   G('machine_crunch', 'Machine crunch', 'abs', 'machine', [10, 15], 'Exhale and curl down, slow return.'),
-  H('h_hanging_knee_raise', 'Hanging knee raise', 'abs', 'bodyweight', [10, 20], 'Curl the pelvis up, don’t just lift the knees. No swinging.', { needs: ['bar'], next: 'h_hanging_leg_raise' }),
-  H('h_hanging_leg_raise', 'Hanging leg raise', 'abs', 'bodyweight', [8, 15], 'Straight legs, curl the pelvis up, no swinging.', { needs: ['bar'] }),
+  H('h_hanging_knee_raise', 'Hanging knee raise', 'abs', 'bodyweight', [10, 20], 'Curl the pelvis up, don’t just lift the knees. No swinging.', { needs: ['bar'], next: 'h_hanging_leg_raise', noLoad: true }),
+  H('h_hanging_leg_raise', 'Hanging leg raise', 'abs', 'bodyweight', [8, 15], 'Straight legs, curl the pelvis up, no swinging.', { needs: ['bar'], noLoad: true }),
   H('h_weighted_crunch', 'Weighted crunch', 'abs', 'free', [12, 25], 'Weight on your chest, round the spine, ribs to hips.'),
+  A('a_reverse_crunch', 'Reverse crunch', 'abs', 'bodyweight', [10, 25], 'On your back, curl your hips off the floor toward your chest, lower slowly.', { noLoad: true, locs: HA }),
+  A('a_crunch', 'Crunch', 'abs', 'bodyweight', [12, 30], 'Curl your ribs toward your hips and exhale hard, slow on the way down. Hold the bag on your chest to add load.'),
+  A('a_towel_rollout', 'Kneeling towel rollout', 'abs', 'bodyweight', [6, 15], 'Hands on a towel on a smooth floor, slide forward as far as you can with a flat back, pull back with your abs.', { noLoad: true, map: { abs: 1, lats: 0.5 }, locs: HA }),
 
   // Quads
   G('hack_squat', 'Hack squat', 'squat', 'machine', [8, 12], 'As deep as you can, let the knees travel forward.'),
@@ -208,7 +266,9 @@ export const EXERCISES = [
   G('leg_extension', 'Leg extension', 'quad_iso', 'machine', [10, 15], 'Recline the seat if you can (stretches the rectus femoris), pause at the top.'),
   H('h_bss', 'Bulgarian split squat', 'squat', 'free', [8, 15], 'Rear foot on a chair, sink deep, slight forward lean. Reps per leg.', { bw: 0.75, needs: ['chair'] }),
   H('h_goblet_squat', 'Heels-elevated goblet squat', 'squat', 'free', [10, 20], 'Heels on a book or plate, sit deep and upright.', { bw: 0.6 }),
-  H('h_sissy_squat', 'Sissy squat', 'quad_iso', 'bodyweight', [8, 20], 'Hold a door frame, knees forward, lean back. Big quad stretch.', { bw: 0.6 }),
+  H('h_sissy_squat', 'Sissy squat', 'quad_iso', 'bodyweight', [8, 20], 'Hold a door frame, knees forward, lean back. Big quad stretch.', { bw: 0.6, locs: HA }),
+  A('a_bss', 'Bulgarian split squat', 'squat', 'bodyweight', [8, 20], 'Rear foot on a chair or bed, sink deep with a slight forward lean. Wear the loaded backpack to add weight. Reps per leg.', { bw: 0.75, needs: ['chair'] }),
+  A('a_split_squat', 'Deficit split squat', 'squat', 'bodyweight', [10, 20], 'Front foot on a thick book or step, lower until the back knee nearly touches the floor, slow. Reps per leg.', { bw: 0.7 }),
 
   // Hamstrings
   G('rdl', 'Romanian deadlift', 'hinge', 'barbell', [8, 12], 'Hips back until a deep hamstring stretch, flat back, bar close.'),
@@ -217,19 +277,21 @@ export const EXERCISES = [
   G('lying_leg_curl', 'Lying leg curl', 'leg_curl', 'machine', [10, 15], 'Hips down, slow lowering.'),
   H('h_kb_rdl', 'Romanian deadlift', 'hinge', 'free', [10, 20], 'Hips back until a deep hamstring stretch, weight close to the legs.'),
   H('h_sl_rdl', 'Single-leg RDL', 'hinge', 'free', [8, 15], 'Hold a wall lightly for balance, deep hip hinge. Reps per leg.'),
-  H('h_slider_curl', 'Slider leg curl', 'leg_curl', 'bodyweight', [8, 20], 'Heels on a towel on a smooth floor, hips up, pull the heels in.', { next: 'h_nordic' }),
-  H('h_nordic', 'Nordic curl', 'leg_curl', 'bodyweight', [3, 8], 'Feet anchored under a couch, lower as slowly as you can, push back up with your hands.'),
+  H('h_slider_curl', 'Slider leg curl', 'leg_curl', 'bodyweight', [8, 20], 'Heels on a towel on a smooth floor, hips up, pull the heels in.', { next: 'h_nordic', noLoad: true, locs: HA }),
+  H('h_nordic', 'Nordic curl', 'leg_curl', 'bodyweight', [3, 8], 'Feet anchored under a couch or bed, lower as slowly as you can, push back up with your hands.', { noLoad: true, locs: HA }),
+  A('a_sl_rdl', 'Single-leg RDL', 'hinge', 'bodyweight', [8, 20], 'Hinge on one leg until the hamstring stretches, reach toward the floor, slow. Hold the bag to add weight. Reps per leg.', { bw: 0.45 }),
 
   // Glutes
   G('hip_thrust', 'Hip thrust', 'glute', 'barbell', [8, 12], 'Chin tucked, shins vertical at the top, squeeze for 1 s.'),
   G('machine_hip_thrust', 'Machine hip thrust', 'glute', 'machine', [8, 12], 'Full lockout, pause at the top.'),
-  H('h_kb_hip_thrust', 'Hip thrust', 'glute', 'free', [10, 20], 'Upper back on the couch, weight on the hips, squeeze 1 s at the top.'),
-  H('h_sl_hip_thrust', 'Single-leg hip thrust', 'glute', 'bodyweight', [8, 20], 'Upper back on the couch, one leg up, full lockout. Reps per leg.'),
+  H('h_kb_hip_thrust', 'Hip thrust', 'glute', 'free', [10, 20], 'Upper back on the couch, weight on the hips, squeeze 1 s at the top.', { needs: ['chair'] }),
+  H('h_sl_hip_thrust', 'Single-leg hip thrust', 'glute', 'bodyweight', [8, 20], 'Upper back on a couch, bed or chair, one leg up, full lockout. Reps per leg.', { bw: 0.5, needs: ['chair'], locs: HA }),
+  A('a_sl_glute_bridge', 'Single-leg glute bridge', 'glute', 'bodyweight', [10, 25], 'On your back, one foot planted close to the hips, drive the hips up and squeeze for 1 s. Reps per leg.', { bw: 0.4, locs: HA }),
 
   // Calves
   G('standing_calf', 'Standing calf raise', 'calf', 'machine', [10, 15], 'Pause 2 s in the deep stretch at the bottom. Full range.'),
   G('leg_press_calf', 'Leg-press calf raise', 'calf', 'machine', [10, 15], 'Balls of the feet on the edge, deep stretch, pause.'),
-  H('h_sl_calf', 'Single-leg calf raise', 'calf', 'bodyweight', [10, 20], 'On a stair edge, hold a weight, pause 2 s at the bottom stretch. Reps per leg.'),
+  H('h_sl_calf', 'Single-leg calf raise', 'calf', 'bodyweight', [10, 20], 'On a stair edge or a thick book, pause 2 s at the bottom stretch. Hold a weight if you have one. Reps per leg.', { locs: HA }),
 ];
 export const EXERCISE = Object.fromEntries(EXERCISES.map(e => [e.id, e]));
 
