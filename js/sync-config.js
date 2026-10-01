@@ -2,6 +2,6 @@
 // These are public identifiers, not secrets: access is controlled by firestore.rules.
 // baseUrl is only for local testing against tools/devserver.py.
 export const FIREBASE = {
-  projectId: '',
-  apiKey: '',
+  projectId: 'physique-e11a5',
+  apiKey: 'AIzaSyBIaaDZpQnNudygREqpwEHnsSUcJpLR9Sg',
 };
