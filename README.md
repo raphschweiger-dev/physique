@@ -34,11 +34,12 @@ After the first visit it works offline, so a bad gym connection doesn't matter.
 Everything stays on your phone unless you turn on sync. There is no account.
 Use **Settings → Export backup** now and then to keep a copy (e.g. in iCloud Drive) or to move to a new phone.
 
-**Sync across devices (optional):** Settings → *Sync across devices* → **Turn on sync** gives you a private
-20-character code. On your other phone, tablet or computer choose **I have a code** (or, on a fresh install,
-*I already use Physique on another device*) and enter it. From then on your devices stay in sync on their own,
-and the app still works offline. Your log is then stored online under that code, so anyone who knows the code
-can see and change it. Keep it private. *Delete the online copy* removes it again.
+**Sync across devices (optional):** Settings → *Sync across devices* → **Turn on sync**. Starting sync needs an
+invite key from whoever shared the app with you; you then get a private 20-character sync code. On your other
+phone, tablet or computer choose **I have a code** (or, on a fresh install, *I already use Physique on another
+device*) and enter it. From then on your devices stay in sync on their own, and the app still works offline.
+Your log is then stored online under that code, so anyone who knows the code can see and change it. Keep it
+private. *Manage…* lets you switch codes, make a new code if yours got out, turn sync off, or delete the online copy.
 
 ## The science behind it
 
@@ -60,5 +61,6 @@ Plain HTML, CSS and JavaScript with no build step. Serve the folder with any sta
 When you change files, bump `VERSION` in `sw.js` so installed copies pick up the update.
 
 Sync uses Firestore's REST API. To run your own: create a free Firebase project with a Firestore
-database, publish `firestore.rules`, and put the project's `projectId` and web `apiKey` into
+database, publish `firestore.rules` with your own invite key in place of `YOURINVITEKEY` (in the
+Firebase console only; never commit it), and put the project's `projectId` and web `apiKey` into
 `js/sync-config.js`. With those left empty, the sync option stays hidden.

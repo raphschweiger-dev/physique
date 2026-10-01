@@ -361,6 +361,7 @@ ul { margin: 0; padding: 0; list-style: none; }
 .sync-code.big b { font-size: 21px; }
 .code-input { text-transform: uppercase; font-size: 17px; margin-top: 4px; }
 .form-error { color: var(--bad); font-size: 14px; margin-top: 10px; }
+.danger-text { color: var(--bad); }
 .ci-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .ci-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .ci-top b { font-size: 16px; }

@@ -33,6 +33,10 @@ export function normalize(input) {
   return c.length === CODE_LEN && [...c].every(ch => ALPHABET.includes(ch)) ? c : null;
 }
 
+// The invite key gates starting a new log (checked by firestore.rules); joining only needs the code.
+const normalizeInvite = input => String(input || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+export const hasInvite = () => Boolean(meta.invite);
+
 // 32 letters divide 256 evenly, so every character is equally likely: 100 bits of randomness.
 const newCode = () => [...crypto.getRandomValues(new Uint8Array(CODE_LEN))].map(b => ALPHABET[b % 32]).join('');
 
@@ -83,7 +87,11 @@ async function commit(writes) {
 const stateWrite = s => ({
   update: {
     name: docName(`sync/${meta.code}`),
-    fields: { data: { stringValue: JSON.stringify(subset(s)) }, updatedAt: { integerValue: String(meta.stateUpdatedAt || Date.now()) } },
+    fields: {
+      data: { stringValue: JSON.stringify(subset(s)) },
+      updatedAt: { integerValue: String(meta.stateUpdatedAt || Date.now()) },
+      invite: { stringValue: meta.invite || '' },
+    },
   },
   updateTransforms: [SYNCED_AT],
 });
@@ -100,6 +108,7 @@ async function fetchState(c = meta.code) {
     state: JSON.parse(d.fields.data.stringValue),
     updatedAt: Number(d.fields.updatedAt?.integerValue || 0),
     syncedAt: d.fields.syncedAt?.timestampValue || d.updateTime,
+    invite: d.fields.invite?.stringValue || '',
   };
 }
 
@@ -235,11 +244,21 @@ export function syncNow(s) {
   });
 }
 
-// Start a new synced log from this device's data.
-export function enable(s) {
-  meta = { code: newCode(), pushed: [], stateDirty: true, stateUpdatedAt: Date.now() };
+const inviteError = () => new SyncError('invite', 'That invite key isn’t right. Ask whoever shared the app with you for it.');
+
+// Start a new synced log from this device's data. Needs the invite key.
+export async function enable(s, inviteInput) {
+  const invite = normalizeInvite(inviteInput);
+  if (!invite) throw inviteError();
+  meta = { code: newCode(), invite, pushed: [], stateDirty: true, stateUpdatedAt: Date.now() };
   saveMeta();
-  return enqueue(() => push(s), { rethrow: true });
+  try {
+    await enqueue(() => push(s), { rethrow: true });
+  } catch (e) {
+    if (e.kind === 'offline') throw e;          // stays on and uploads later
+    disable();
+    throw e.kind === 'denied' ? inviteError() : e;
+  }
 }
 
 // Connect this device to an existing log: its settings win, this device's workouts are added.
@@ -248,11 +267,32 @@ export async function join(input, s) {
   if (!c) throw new SyncError('format', 'That doesn’t look like a sync code. It has 20 letters and digits.');
   const remote = await fetchState(c);
   if (!remote) throw new SyncError('missing', 'No synced log found for this code. Check it on your other device.');
-  meta = { code: c, pushed: [], stateDirty: false, stateUpdatedAt: remote.updatedAt, stateServerTime: remote.syncedAt };
+  meta = { code: c, invite: remote.invite, pushed: [], stateDirty: false, stateUpdatedAt: remote.updatedAt, stateServerTime: remote.syncedAt };
   applyState(s, remote.state);
   meta.stateHash = hash(subset(s));
   saveMeta();
   return enqueue(async () => { await pull(s); await push(s); }, { rethrow: true });
+}
+
+// Move the log to a fresh code (e.g. the old one leaked) and delete the old online copy.
+// Other devices then need the new code.
+export function rotate(s, inviteInput) {
+  return enqueue(async () => {
+    await pull(s);                               // don't lose workouts this device hasn't seen yet
+    const old = meta.code;
+    const { docs } = await fetchSessions(null);
+    const before = meta;
+    meta = { code: newCode(), invite: normalizeInvite(inviteInput) || before.invite, pushed: [], stateDirty: true, stateUpdatedAt: Date.now() };
+    try {
+      await push(s);
+    } catch (e) {
+      meta = before;                             // keep using the old code
+      saveMeta();
+      throw e.kind === 'denied' ? inviteError() : e;
+    }
+    await commit([...docs.map(d => ({ delete: d.name })), { delete: docName(`sync/${old}`) }]);
+    saveMeta();
+  }, { rethrow: true });
 }
 
 export function disable() {

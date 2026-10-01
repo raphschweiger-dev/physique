@@ -3,10 +3,17 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Physique sync. A sync code is a long random secret: whoever knows it can read and write
     // that log. Listing all logs is never allowed, so codes can't be discovered.
+    // Starting a new log needs the invite key, so only people you give it to can turn sync on.
+    // Put your own key below in capitals without dashes, and only in the Firebase console:
+    // this file is public, so never commit the real key.
+    function okCode(code) { return code.size() == 20; }
     match /sync/{code} {
-      allow get, create, update, delete: if code.size() == 20;
+      allow get, delete: if okCode(code);
+      allow create: if okCode(code) && request.resource.data.invite == 'YOURINVITEKEY';
+      allow update: if okCode(code) && request.resource.data.get('invite', '') == resource.data.get('invite', '');
       match /sessions/{session} {
-        allow read, write: if code.size() == 20;
+        allow read, delete: if okCode(code);
+        allow create, update: if okCode(code) && existsAfter(/databases/$(database)/documents/sync/$(code));
       }
     }
   }

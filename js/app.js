@@ -658,10 +658,55 @@ function syncCard() {
     <h3>Sync across devices</h3>
     <div class="sync-code"><span>Your sync code</span><b>${esc(sync.code())}</b></div>
     <p class="hint" id="sync-status">${esc(syncStatusText())}</p>
-    <div class="row wrap"><button class="btn small ghost" data-act="sync-copy">Copy code</button><button class="btn small ghost" data-act="sync-now">Sync now</button><button class="btn small ghost" data-act="sync-off">Turn off</button></div>
+    <div class="row wrap"><button class="btn small ghost" data-act="sync-copy">Copy code</button><button class="btn small ghost" data-act="sync-now">Sync now</button><button class="btn small ghost" data-act="sync-manage">Manage…</button></div>
     <p class="hint">On another device: Settings → Sync across devices → I have a code. Anyone with this code can see and change your log, so keep it private.</p>
-    <button class="btn text danger" data-act="sync-delete">Delete the online copy</button>
   </section>`;
+}
+
+const inviteField = () => `<label class="field"><span>Invite key</span>
+  <input class="input code-input" id="sync-invite-input" value="${esc(sheet.invite || '')}" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"></label>`;
+
+function syncOnSheet() {
+  return `<div class="sheet-head"><h2>Turn on sync</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    <p class="hint">Starting sync needs the invite key from whoever shared the app with you. Your other devices then only need your sync code.</p>
+    ${inviteField()}
+    ${sheet.error ? `<p class="form-error" role="alert">${esc(sheet.error)}</p>` : ''}
+    <button class="btn primary big" data-act="sync-on-go"${sheet.busy ? ' disabled' : ''}>${sheet.busy ? 'Turning on…' : 'Turn on sync'}</button>`;
+}
+
+function syncManageSheet() {
+  const row = (act, title, sub, danger = false) => `<button class="list-row" data-act="${act}">
+    <span class="lr-main"><b${danger ? ' class="danger-text"' : ''}>${title}</b><span class="muted">${sub}</span></span>${icon('chevron', 16)}</button>`;
+  return `<div class="sheet-head"><div><p class="eyebrow">Sync across devices</p><h2>Manage sync</h2></div><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    ${row('sync-join', 'Use a code from another device', 'Switch this device to that log. Workouts on this device get added to it.')}
+    ${row('sync-rotate', 'Make a new code', 'If your code got out. Your log moves to a fresh code and the old one stops working.')}
+    ${row('sync-off', 'Turn off on this device', 'This device keeps its data. The online copy stays.')}
+    ${row('sync-delete', 'Delete the online copy', 'Removes your synced log from the cloud. Devices keep their data.', true)}`;
+}
+
+function syncRotateSheet() {
+  return `<div class="sheet-head"><h2>Make a new code</h2><button class="icon-btn" data-act="close-sheet" aria-label="Close">${icon('close')}</button></div>
+    <p class="hint">Your log moves to a fresh code and the old code stops working, also for anyone who knew it. Enter the new code on your other devices afterwards.</p>
+    ${sync.hasInvite() ? '' : inviteField()}
+    ${sheet.error ? `<p class="form-error" role="alert">${esc(sheet.error)}</p>` : ''}
+    <button class="btn primary big" data-act="sync-rotate-go"${sheet.busy ? ' disabled' : ''}>${sheet.busy ? 'Moving your log…' : 'Make a new code'}</button>`;
+}
+
+function eraseSheet() {
+  return `<div class="sheet-head"><h2>Erase all data?</h2></div>
+    <p class="lead">Every workout, measurement and setting on this device will be deleted. Export a backup first if you might want it back.</p>
+    <p class="hint">Sync is on. Your synced log is also stored online. Erase it there too, or only on this device?</p>
+    ${sheet.error ? `<p class="form-error" role="alert">${esc(sheet.error)}</p>` : ''}
+    <button class="btn danger-fill big" data-act="erase-all"${sheet.busy ? ' disabled' : ''}>${sheet.busy ? 'Erasing…' : 'Erase here and online'}</button>
+    <button class="btn ghost big" data-act="erase-local">Erase only this device</button>
+    <button class="btn text" data-act="close-sheet">Cancel</button>`;
+}
+
+// Wipe this device and start fresh. Reloading resets every in-memory module state.
+function eraseLocal() {
+  sync.disable();
+  localStorage.removeItem('physique.v1');
+  location.reload();
 }
 
 function syncJoinSheet() {
@@ -781,6 +826,7 @@ function renderSheet() {
     loc: () => locationSheet(sheet.day, sheet.switching), pickDay: pickDaySheet, swap: () => swapSheet(sheet.i), checkin: checkinSheet,
     summary: summarySheet, confirm: confirmSheet, muscle: () => muscleSheet(sheet.m), exercise: () => exerciseSheet(sheet.ex),
     measure: measureSheet, priorities: prioritiesSheet, syncJoin: syncJoinSheet, syncCode: syncCodeSheet,
+    syncOn: syncOnSheet, syncManage: syncManageSheet, syncRotate: syncRotateSheet, erase: eraseSheet,
   }[sheet.type]();
   $sheet.innerHTML = `<div class="sheet-backdrop" data-act="${sheet.type === 'checkin' ? '' : 'close-sheet'}"></div>
     <div class="sheet" role="dialog" aria-modal="true" data-type="${sheet.type}"><div class="grabber"></div>${body}</div>`;
@@ -877,6 +923,10 @@ document.addEventListener('visibilitychange', () => {
   if (Date.now() - lastSyncPull > 15000) runSync();   // pick up changes made on another device
 });
 window.addEventListener('online', () => runSync());
+// Another window of the app erased the data: reload so this one can't write it back.
+window.addEventListener('storage', e => {
+  if ((e.key === 'physique.v1' || e.key === null) && e.newValue === null) location.reload();
+});
 
 // ---------- workout actions ----------
 
@@ -1131,16 +1181,48 @@ const A = {
     });
   },
   'confirm-yes'() { const fn = sheet.fn; sheet = null; fn(); render(); },
-  async 'sync-on'(el) {
-    el.disabled = true;
+  'sync-on'() {
+    sheet = { type: 'syncOn' };
+    renderSheet();
+    setTimeout(() => document.getElementById('sync-invite-input')?.focus(), 60);
+  },
+  async 'sync-on-go'() {
+    sheet = { ...sheet, invite: document.getElementById('sync-invite-input')?.value || '', busy: true, error: null };
+    renderSheet();
     try {
-      await sync.enable(S);
+      await sync.enable(S, sheet.invite);
       sheet = { type: 'syncCode' };
     } catch (e) {
-      if (e.kind === 'offline') { sheet = { type: 'syncCode' }; toast('Sync is on. It uploads when you’re online.'); } else { sync.disable(); toast(e.message); }
+      if (e.kind === 'offline') { sheet = { type: 'syncCode' }; toast('Sync is on. It uploads when you’re online.'); } else sheet = { ...sheet, busy: false, error: e.message };
     }
     render();
   },
+  'sync-manage'() { sheet = { type: 'syncManage' }; renderSheet(); },
+  'sync-rotate'() { sheet = { type: 'syncRotate' }; renderSheet(); },
+  async 'sync-rotate-go'() {
+    sheet = { ...sheet, invite: document.getElementById('sync-invite-input')?.value || '', busy: true, error: null };
+    renderSheet();
+    try {
+      await sync.rotate(S, sheet.invite);
+      sheet = { type: 'syncCode' };
+      toast('New code ready. Enter it on your other devices.');
+    } catch (e) {
+      sheet = { ...sheet, busy: false, error: e.message };
+    }
+    render();
+  },
+  async 'erase-all'() {
+    sheet = { ...sheet, busy: true, error: null };
+    renderSheet();
+    try {
+      await sync.deleteRemote();
+      eraseLocal();
+    } catch (e) {
+      sheet = { ...sheet, busy: false, error: `Couldn’t delete the online copy: ${e.message}` };
+      renderSheet();
+    }
+  },
+  'erase-local'() { eraseLocal(); },
   'sync-join'() {
     sheet = { type: 'syncJoin' };
     renderSheet();
@@ -1202,14 +1284,8 @@ const A = {
   },
   import() { document.getElementById('import-file')?.click(); },
   reset() {
-    const syncNote = sync.isOn() ? ' Sync turns off on this device; the online copy stays.' : '';
-    confirmThen('Erase all data?', `Every workout, measurement and setting on this device will be deleted. Export a backup first if you might want it back.${syncNote}`, 'Erase everything', () => {
-      sync.disable();
-      localStorage.removeItem('physique.v1');
-      S = store.defaultState();
-      ui.ob = null; ui.obStep = 0; ui.tab = 'today';
-      render();
-    }, true);
+    if (sync.isOn()) { sheet = { type: 'erase' }; renderSheet(); return; }
+    confirmThen('Erase all data?', 'Every workout, measurement and setting on this device will be deleted. Export a backup first if you might want it back.', 'Erase everything', eraseLocal, true);
   },
 };
 
